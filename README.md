@@ -97,7 +97,8 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 ## Copyright
 
-Copyright © Roman Glos, 11.11.2025.  
+Copyright © Roman Glos, 12.11.2025.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
 
