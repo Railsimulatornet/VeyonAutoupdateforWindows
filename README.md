@@ -32,8 +32,8 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 
 ## Systemvoraussetzungen
 
-- Windows 10/11 mit **App Installer / WinGet** (Bestandteil von Windows; über den Store/Updates registriert).
-- Veyon 4.x/4.9.x (Master optional). Der Windows-Installer von Veyon unterstützt **Silent-Install** (`/S`) und Komponenten-Schalter (z. B. `/NoMaster`).
+- Windows 10/11 mit **App Installer / WinGet**.  
+- Veyon 4.x/4.9.x (Master optional). Der Veyon-Installer unterstützt **Silent-Install** (`/S`) und Komponenten-Schalter (z. B. `/NoMaster`).
 
 ---
 
@@ -46,7 +46,24 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 3. Fertig – beim nächsten Boot prüft das Skript die Online-Version und aktualisiert *nur wenn nötig*.
 
 ### Deinstallation
-`Remove-Veyon-AutoUpdate.cmd` als Administrator ausführen (Aufgabe + Dateien werden gelöscht).
+`Remove-Veyon-AutoUpdate.cmd` als Administrator ausführen (Aufgabe + Dateien werden entfernt).
+
+---
+
+## Screenshots
+
+<!-- Falls deine Dateinamen abweichen, hier die vier Pfade anpassen -->
+### Schritt 1
+<img src="Screens/Schritt1.png" alt="Schritt 1 – Setup starten" width="950">
+
+### Schritt 2
+<img src="Screens/Schritt2.png" alt="Schritt 2 – Aufgabenplanung/Bestätigung" width="950">
+
+### Schritt 3
+<img src="Screens/Schritt3.png" alt="Schritt 3 – Abschluss/Bestätigung" width="950">
+
+### Logfile (Beispielausgabe)
+<img src="Screens/Logfile.png" alt="Veyon Auto-Update – Logfile" width="950">
 
 ---
 
@@ -68,7 +85,7 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 Beim nächsten Systemstart läuft die Prüfung erneut. Ist die Version noch alt, wird das Upgrade wieder ausgelöst. Mehrfache Aufrufe sind unkritisch.
 
 **Warum `--custom "/NoMaster"` und nicht `--override`?**  
-`--override` **ersetzt** die Standard-Installerargumente des Manifests (Silent-Switch kann verloren gehen). `--custom` **ergänzt** zusätzliche Argumente – der Silent-Modus bleibt erhalten.
+`--override` **ersetzt** die Standard-Installerargumente des Manifests (Silent-Switch kann verloren gehen). `--custom` **ergänzt** nur zusätzliche Argumente – der Silent-Modus bleibt erhalten.
 
 ---
 
