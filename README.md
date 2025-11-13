@@ -63,7 +63,7 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 <img src="Screens/VeyonUpdaterSchritt3.jpg" alt="Schritt 3 – Abschluss/Bestätigung" width="950">
 
 ### Logfile (Beispielausgabe)
-<img src="Screens/VeyonUpdaterLogfile.png" alt="Veyon Auto-Update – Logfile" width="950">
+<img src="Screens/VeyonUpdaterLogfile.jpg" alt="Veyon Auto-Update – Logfile" width="950">
 
 ---
 
@@ -99,4 +99,5 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 11.11.2025.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
