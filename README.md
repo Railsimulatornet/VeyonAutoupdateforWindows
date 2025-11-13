@@ -54,16 +54,16 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 
 <!-- Falls deine Dateinamen abweichen, hier die vier Pfade anpassen -->
 ### Schritt 1
-<img src="Screens/Schritt1.png" alt="Schritt 1 – Setup starten" width="950">
+<img src="Screens/VeyonUpdaterSchritt1.jpg" alt="Schritt 1 – Setup starten" width="950">
 
 ### Schritt 2
-<img src="Screens/Schritt2.png" alt="Schritt 2 – Aufgabenplanung/Bestätigung" width="950">
+<img src="Screens/VeyonUpdaterSchritt2.jpg" alt="Schritt 2 – Aufgabenplanung/Bestätigung" width="950">
 
 ### Schritt 3
-<img src="Screens/Schritt3.png" alt="Schritt 3 – Abschluss/Bestätigung" width="950">
+<img src="Screens/VeyonUpdaterSchritt3.jpg" alt="Schritt 3 – Abschluss/Bestätigung" width="950">
 
 ### Logfile (Beispielausgabe)
-<img src="Screens/Logfile.png" alt="Veyon Auto-Update – Logfile" width="950">
+<img src="Screens/VeyonUpdaterLogfile.png" alt="Veyon Auto-Update – Logfile" width="950">
 
 ---
 
@@ -99,3 +99,4 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 11.11.2025.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
