@@ -2,7 +2,7 @@
 
 Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – leise, robust und mit Sicherung der bestehenden Konfiguration. Ideal für Eltern-/Schülergeräte, wo Standardkonten ohne Adminrechte genutzt werden.
 
-> **Hinweis:** Dieses Repository stellt ein fertig nutzbares ZIP aus den Releases bereit. Es ändert **keine** Veyon-Einstellungen und übernimmt vorhandene Konfigurationen.
+> **Hinweis:** Dieses Repository stellt ein fertig nutzbares ZIP aus den Releases bereit. Es ändert **keine** Veyon-Einstellungen, aber übernimmt vorhandene Konfigurationen.
 
 ---
 
@@ -138,3 +138,4 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 12.11.2025–24.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
