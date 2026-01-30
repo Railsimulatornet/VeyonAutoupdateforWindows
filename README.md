@@ -5,8 +5,15 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 > **Hinweis:** Dieses Repository stellt ein fertig nutzbares ZIP aus den Releases bereit. Es ändert **keine** Veyon-Einstellungen, aber übernimmt vorhandene Konfigurationen.
 
 ---
+Wichtig: Es gibt zwei Installationswege
+- Empfohlen: Installation per EXE Datei aus den Releases
+- Alternativ: Installation per ZIP Datei, entpacken und CMD als Administrator ausführen
+
 
 ## Changelog
+
+### V1.1 (30.01.2026)
+- Neu: Ein-Klick-Installer als EXE (Eltern bitte diese Datei für die Installation verwenden).
 
 ### V1.1 (24.01.2026)
 - Verbesserte Stabilität bei der Installation (u. a. Vorbereitung für bessere Handhabung durch Eltern).
@@ -138,4 +145,5 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 12.11.2025–24.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
