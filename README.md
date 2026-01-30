@@ -13,7 +13,8 @@ Wichtig: Es gibt zwei Installationswege
 ## Changelog
 
 ### V1.2 (30.01.2026)
-- Neu: Ein-Klick-Installer als EXE (Eltern bitte diese Datei für die Installation verwenden).
+- Neu: Ein Klick Installer als **EXE** (Eltern bitte diesen Weg nutzen)
+- Installation vereinfacht: kein manuelles Entpacken und kein manuelles Starten der CMD nötig
 
 ### V1.1 (24.01.2026)
 - Verbesserte Stabilität bei der Installation (u. a. Vorbereitung für bessere Handhabung durch Eltern).
@@ -145,6 +146,7 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 12.11.2025–24.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
 
 
