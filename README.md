@@ -6,8 +6,8 @@ Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – le
 
 ---
 Wichtig: Es gibt zwei Installationswege
-- Empfohlen: Installation per EXE Datei aus den Releases
-- Alternativ: Installation per ZIP Datei, entpacken und CMD als Administrator ausführen
+- Empfohlen: **Installation per EXE Datei** aus den Releases (Ein Klick Installer, am einfachsten für Eltern)
+- Alternativ: **Installation per ZIP Datei** aus den Releases (ZIP entpacken und CMD als Administrator starten)
 
 
 ## Changelog
@@ -60,17 +60,26 @@ Wichtig: Es gibt zwei Installationswege
 
 ---
 
-## Installation (Kurz) – für Eltern
+## Installation (per EXE Datei) – für Eltern (empfohlen)
 
-1. ZIP aus den Releases herunterladen.  
-2. **Wichtig:** ZIP **entpacken** (Rechtsklick → **„Alle extrahieren…“**).  
-   - Hintergrund: Aus einer geöffneten ZIP heraus blockiert Windows teils Schreib-/Ausführrechte („Zugriff verweigert“).
-3. **Als Administrator** `Install-Veyon-AutoUpdate.cmd` starten.  
-   - Kopiert Dateien nach `C:\ProgramData\Veyon\Update\`  
-   - Legt eine geplante Aufgabe an (SYSTEM, Delay ca. 2 min)
-4. Fertig – beim nächsten Start prüft das Skript die Online-Version und aktualisiert **nur wenn nötig**.
+1. In den Releases die Datei **`VeyonUpdater_vX_Y_Setup.exe`** herunterladen
+2. Datei starten (bei Bedarf: Rechtsklick, **Als Administrator ausführen**)
+3. Hinweis bestätigen, Setup entpackt und installiert automatisch
+4. Fertig: Beim nächsten Start prüft das System die Online Version und aktualisiert nur wenn nötig
 
-> **Tipp:** Nach der Installation kann man den Task in der Aufgabenplanung sehen (Name z. B. „Veyon AutoUpdate (winget)“).
+Tipp: Nach der Installation kann man den Task in der Aufgabenplanung sehen (Name z. B. „Veyon AutoUpdate (winget)“).
+
+## Installation (per ZIP Datei) – alternativ
+
+1. ZIP aus den Releases herunterladen
+2. Wichtig: ZIP **entpacken** (Rechtsklick → **Alle extrahieren**)
+   Hintergrund: Aus einer geöffneten ZIP heraus blockiert Windows teils Schreib und Ausführrechte („Zugriff verweigert“)
+3. Als Administrator `Install-Veyon-AutoUpdate.cmd` starten  
+   Kopiert Dateien nach `C:\ProgramData\Veyon\Update\`  
+   Legt eine geplante Aufgabe an (SYSTEM, Delay ca. 2 Minuten)
+4. Fertig: Beim nächsten Start prüft das Skript die Online Version und aktualisiert nur wenn nötig
+
+Tipp: Nach der Installation kann man den Task in der Aufgabenplanung sehen (Name z. B. „Veyon AutoUpdate (winget)“).
 
 ### Deinstallation
 `Remove-Veyon-AutoUpdate.cmd` als Administrator ausführen (Aufgabe + Dateien werden entfernt).
@@ -146,6 +155,7 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 12.11.2025–24.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
 
 
