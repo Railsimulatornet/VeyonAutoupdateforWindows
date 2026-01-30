@@ -12,7 +12,7 @@ Wichtig: Es gibt zwei Installationswege
 
 ## Changelog
 
-### V1.1 (30.01.2026)
+### V1.2 (30.01.2026)
 - Neu: Ein-Klick-Installer als EXE (Eltern bitte diese Datei für die Installation verwenden).
 
 ### V1.1 (24.01.2026)
@@ -145,5 +145,6 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 12.11.2025–24.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
 
