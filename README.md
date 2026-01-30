@@ -153,8 +153,9 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 ## Copyright
 
-Copyright © Roman Glos, 12.11.2025–24.01.2026.  
+Copyright © Roman Glos, 12.11.2025–30.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
 
 
