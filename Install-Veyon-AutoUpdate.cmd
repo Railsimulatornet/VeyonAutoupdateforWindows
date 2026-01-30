@@ -1,6 +1,6 @@
 @echo off
 :: Veyon Auto-Update Einrichtung (Start bei Systemstart)
-:: Copyright Roman Glos 24.01.2026 V1.1
+:: Copyright Roman Glos 30.01.2026 V1.2
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 title Veyon Auto-Update Einrichtung (Start bei Systemstart)
