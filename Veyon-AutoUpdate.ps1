@@ -1,5 +1,5 @@
-﻿# Veyon-AutoUpdate.ps1
-# Copyright Roman Glos 12.11.2025 V1.0
+# Veyon-AutoUpdate.ps1
+# Copyright Roman Glos 21.02.2026 V1.3
 
 param([switch]$Testlauf)
 
