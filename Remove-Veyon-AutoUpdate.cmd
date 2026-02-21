@@ -1,6 +1,6 @@
 @echo off
 :: Veyon Auto-Update entfernen
-:: Copyright Roman Glos 21.11.2025 V1.0
+:: Copyright Roman Glos 21.02.2026 V1.3
 chcp 65001 >nul
 setlocal EnableExtensions
 title Veyon Auto-Update entfernen
@@ -28,6 +28,6 @@ if exist "%DST_DIR%" (
 )
 
 echo [3/3] Fertig. Die Auto-Update-Funktion wurde entfernt.
-echo Copyright Roman Glos 12.11.2025 V1.0 für Realschule Roth
+echo Copyright Roman Glos 21.02.2026 V1.3 für Realschule Roth
 pause
 endlocal
