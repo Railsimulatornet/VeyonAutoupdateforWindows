@@ -1,6 +1,6 @@
 @echo off
 :: Veyon Auto-Update Einrichtung (Start bei Systemstart)
-:: Copyright Roman Glos 30.01.2026 V1.2
+:: Copyright Roman Glos 30.01.2026 V1.3
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 title Veyon Auto-Update Einrichtung (Start bei Systemstart)
@@ -100,6 +100,27 @@ if errorlevel 1 (
   pause
   exit /b 3
 )
+
+:: Power-Optionen setzen: Task darf auch im Akkubetrieb starten und wird bei Akkuwechsel nicht gestoppt
+:: Hintergrund: Standard ist oft "Nicht starten, wenn auf Akku" + "Stoppen bei Wechsel auf Akku".
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$tn = '%TASK_NAME%';" ^
+  "try {" ^
+  "  $t = Get-ScheduledTask -TaskName $tn -ErrorAction Stop;" ^
+  "  $s = $t.Settings;" ^
+  "  $s.DisallowStartIfOnBatteries = $false;" ^
+  "  $s.StopIfGoingOnBatteries = $false;" ^
+  "  Set-ScheduledTask -TaskName $tn -Settings $s -ErrorAction Stop | Out-Null;" ^
+  "} catch {" ^
+  "  # Fallback (falls ScheduledTasks-Modul/Set-ScheduledTask nicht greift): XML exportieren, patchen, neu importieren" ^
+  "  $xml = schtasks /Query /TN $tn /XML 2>$null;" ^
+  "  if(-not $xml){ throw }" ^
+  "  $xml = $xml -replace '<DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>', '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>';" ^
+  "  $xml = $xml -replace '<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>', '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>';" ^
+  "  $tmp = Join-Path $env:TEMP 'VeyonAutoUpdate_Task.xml';" ^
+  "  $xml | Out-File -FilePath $tmp -Encoding Unicode -Force;" ^
+  "  schtasks /Create /TN $tn /XML $tmp /F | Out-Null;" ^
+  "}"
 
 echo Trigger: %SC_TEXT%
 
