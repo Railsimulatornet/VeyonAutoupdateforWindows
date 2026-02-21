@@ -11,6 +11,8 @@ Wichtig: Es gibt zwei Installationswege
 
 
 ## Changelog
+### V1.3 (21.02.2026)
+- Überarbeitete Erstellung der geplanten Aufgabe (Scheduled Task) Update-Task läuft jetzt unabhängig vom Netzbetrieb
 
 ### V1.2 (30.01.2026)
 - Neu: Ein Klick Installer als **EXE** (Eltern bitte diesen Weg nutzen)
@@ -155,6 +157,7 @@ Benutzung auf eigene Verantwortung. Bitte vorherige Backups/Images vorhalten. Ke
 
 Copyright © Roman Glos, 12.11.2025–30.01.2026.  
 Siehe **TERMS.md** für Nutzungsbedingungen.
+
 
 
 
