@@ -1,0 +1,195 @@
+# Windows end-to-end validation for Veyon AutoUpdate
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+function Assert-True {
+    param([bool]$Condition,[string]$Message)
+    if (-not $Condition) { throw "ASSERT FAILED: $Message" }
+}
+
+function Assert-Contains {
+    param([string]$Text,[string]$Needle,[string]$Message)
+    if ($Text -notlike ('*' + $Needle + '*')) {
+        throw "ASSERT FAILED: $Message`nMissing: $Needle"
+    }
+}
+
+function Wait-ScheduledTaskCompletion {
+    param([string]$TaskName,[int]$TimeoutSeconds = 180)
+
+    $startedAt = Get-Date
+    Start-ScheduledTask -TaskName $TaskName
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $seen = $false
+    do {
+        Start-Sleep -Milliseconds 500
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop
+        $seen = ($info.LastRunTime -ge $startedAt.AddSeconds(-2))
+    } while ((-not $seen -or $task.State -eq 'Running') -and (Get-Date) -lt $deadline)
+
+    if (-not $seen) { throw "Task '$TaskName' did not start." }
+    if ($task.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        throw "Task '$TaskName' timed out."
+    }
+
+    return [uint32]$info.LastTaskResult
+}
+
+function Build-FakeVeyon {
+    param(
+        [string]$OutputPath,
+        [string]$Version,
+        [string]$TypeName
+    )
+
+    $source = @"
+using System;
+using System.IO;
+using System.Reflection;
+
+[assembly: AssemblyVersion("$Version")]
+[assembly: AssemblyFileVersion("$Version")]
+[assembly: AssemblyInformationalVersion("$Version")]
+
+public static class $TypeName
+{
+    public static int Main(string[] args)
+    {
+        if (args.Length > 0 && args[0] == "--version")
+        {
+            Console.WriteLine("$Version");
+            return 0;
+        }
+
+        if (args.Length >= 3 && args[0] == "config" && args[1] == "export")
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(args[2]));
+            File.WriteAllText(args[2], "{\"fake\":true}");
+            return 0;
+        }
+
+        return 0;
+    }
+}
+"@
+    Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $OutputPath -OutputType ConsoleApplication
+}
+
+function Build-FakeWinget {
+    param(
+        [string]$OutputPath,
+        [string]$VeyonRoot,
+        [string]$UpgradeExecutable
+    )
+
+    $escapedVeyon = $VeyonRoot.Replace('\','\\').Replace('"','\"')
+    $escapedUpgrade = $UpgradeExecutable.Replace('\','\\').Replace('"','\"')
+    $source = @"
+using System;
+using System.IO;
+using System.Linq;
+
+public static class FakeWinget
+{
+    static string BaseDir { get { return AppDomain.CurrentDomain.BaseDirectory; } }
+    static string PinFile { get { return Path.Combine(BaseDir, "pin.txt"); } }
+    static string ArgsFile { get { return Path.Combine(BaseDir, "args.log"); } }
+    static string CountFile { get { return Path.Combine(BaseDir, "upgrade-count.txt"); } }
+
+    static bool Has(string[] args, string value)
+    {
+        return args.Any(a => String.Equals(a, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static int Main(string[] args)
+    {
+        File.AppendAllText(ArgsFile, DateTime.UtcNow.ToString("o") + " | " + String.Join(" ", args) + Environment.NewLine);
+
+        if (args.Length == 1 && args[0] == "--version")
+        {
+            Console.WriteLine("v1.29.280");
+            return 0;
+        }
+
+        if (args.Length >= 2 && args[0] == "source")
+        {
+            Console.WriteLine("OK");
+            return 0;
+        }
+
+        if (args.Length >= 1 && args[0] == "show")
+        {
+            Console.WriteLine("Found Veyon [VeyonSolutions.Veyon]");
+            Console.WriteLine("Version: 4.11.0.0");
+            return 0;
+        }
+
+        if (args.Length >= 2 && args[0] == "pin" && args[1] == "list")
+        {
+            Console.WriteLine("Name ID Version Source PinningType");
+            if (File.Exists(PinFile))
+            {
+                string pin = File.ReadAllText(PinFile).Trim();
+                Console.WriteLine("Veyon VeyonSolutions.Veyon 4.10.4.0 winget " + pin);
+            }
+            return 0;
+        }
+
+        if (args.Length >= 2 && args[0] == "pin" && args[1] == "remove")
+        {
+            if (File.Exists(PinFile)) File.Delete(PinFile);
+            Console.WriteLine("Pin removed");
+            return 0;
+        }
+
+        if (args.Length >= 2 && args[0] == "pin" && args[1] == "add")
+        {
+            File.WriteAllText(PinFile, "Pinning");
+            Console.WriteLine("Pin added");
+            return 0;
+        }
+
+        if (args.Length >= 1 && args[0] == "upgrade")
+        {
+            if (File.Exists(PinFile) && !Has(args, "--include-pinned"))
+            {
+                return unchecked((int)0x8A150028);
+            }
+
+            int count = 0;
+            if (File.Exists(CountFile)) Int32.TryParse(File.ReadAllText(CountFile), out count);
+            File.WriteAllText(CountFile, (count + 1).ToString());
+
+            string root = "$escapedVeyon";
+            string upgrade = "$escapedUpgrade";
+            foreach (string name in new [] {
+                "veyon-cli.exe",
+                "veyon-service.exe",
+                "veyon-server.exe",
+                "veyon-configurator.exe",
+                "veyon-wcli.exe",
+                "veyon-worker.exe"
+            })
+            {
+                File.Copy(upgrade, Path.Combine(root, name), true);
+            }
+            return 0;
+        }
+
+        return 0;
+    }
+}
+"@
+    Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $OutputPath -OutputType ConsoleApplication
+}
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$testRoot = Join-Path 'C:\' ('Veyon Updater E2E ' + [guid]::NewGuid().ToString('N'))
+$packageRoot = Join-Path $testRoot 'Package With Spaces'
+$base = Join-Path $testRoot 'Installed Update'
+$fakeProgramFiles = Join-Path $testRoot 'Fake Program Files'
