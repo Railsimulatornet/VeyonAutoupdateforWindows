@@ -81,7 +81,7 @@
     Write-Host '=== END LOG AFTER SELF-UPDATE TEST ==='
 
     $installedText = Get-Content -LiteralPath $installedScript -Raw
-    Assert-Contains $installedText "[version]'1.4.5.0'" 'Self-update did not replace the installed script.'
+    Assert-True ($installedText.Contains("[version]'1.4.5.0'")) 'Self-update did not replace the installed script.'
     Assert-True (Test-Path -LiteralPath (Join-Path $base 'Veyon-AutoUpdate.selfupdate.bak.ps1') -PathType Leaf) 'Self-update backup is missing.'
     Assert-Contains $logText 'Skript-Self-Update installiert: 1.4.4.0 -> 1.4.5.0' 'Self-update success was not logged.'
 
