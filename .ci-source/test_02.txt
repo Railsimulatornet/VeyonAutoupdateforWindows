@@ -24,52 +24,49 @@
     $harness.selfUpdateManifestUrl = "http://127.0.0.1:$port/update-manifest.json"
     $harness | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
-    # Use a tiny raw TCP HTTP server. This avoids Python argument/quoting
-    # differences and is reachable from the SYSTEM scheduled task.
+    # Host the two files with HttpListener in a background PowerShell job.
     $server = Start-Job -ArgumentList $port,$webRoot -ScriptBlock {
         param([int]$Port,[string]$Root)
-        $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback,$Port)
+        $listener = New-Object System.Net.HttpListener
+        $listener.Prefixes.Add("http://127.0.0.1:$Port/")
         $listener.Start()
         try {
-            while ($true) {
-                $client = $listener.AcceptTcpClient()
+            while ($listener.IsListening) {
+                $context = $listener.GetContext()
                 try {
-                    $stream = $client.GetStream()
-                    $reader = New-Object System.IO.StreamReader($stream,[Text.Encoding]::ASCII,$false,1024,$true)
-                    $requestLine = $reader.ReadLine()
-                    while (($line = $reader.ReadLine()) -ne $null -and $line -ne '') {}
-
-                    $requestTarget = if ($requestLine) { ($requestLine -split ' ')[1] } else { '/' }
-                    $absolutePath = ([Uri]('http://127.0.0.1' + $requestTarget)).AbsolutePath.TrimStart('/')
-                    $filePath = Join-Path $Root $absolutePath
-
+                    $relative = $context.Request.Url.AbsolutePath.TrimStart('/')
+                    $filePath = Join-Path $Root $relative
                     if (Test-Path -LiteralPath $filePath -PathType Leaf) {
                         $body = [IO.File]::ReadAllBytes($filePath)
-                        $status = '200 OK'
-                        $contentType = if ($filePath.EndsWith('.json')) { 'application/json' } else { 'text/plain; charset=utf-8' }
+                        $context.Response.StatusCode = 200
+                        $context.Response.ContentType = if ($filePath.EndsWith('.json')) { 'application/json' } else { 'text/plain; charset=utf-8' }
                     } else {
                         $body = [Text.Encoding]::UTF8.GetBytes('Not found')
-                        $status = '404 Not Found'
-                        $contentType = 'text/plain; charset=utf-8'
+                        $context.Response.StatusCode = 404
+                        $context.Response.ContentType = 'text/plain; charset=utf-8'
                     }
-
-                    $header = "HTTP/1.1 $status`r`nContent-Type: $contentType`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
-                    $headerBytes = [Text.Encoding]::ASCII.GetBytes($header)
-                    $stream.Write($headerBytes,0,$headerBytes.Length)
-                    $stream.Write($body,0,$body.Length)
-                    $stream.Flush()
+                    $context.Response.ContentLength64 = $body.Length
+                    $context.Response.OutputStream.Write($body,0,$body.Length)
                 } finally {
-                    if ($client) { $client.Dispose() }
+                    $context.Response.OutputStream.Close()
                 }
             }
         } finally {
             $listener.Stop()
+            $listener.Close()
         }
     }
     Start-Sleep -Seconds 2
+    if ($server.State -eq 'Failed') {
+        Receive-Job -Job $server -Keep | Write-Host
+        throw 'Local self-update HTTP server failed to start.'
+    }
 
     # Verify that the endpoint is available before asking the SYSTEM task to use it.
-    $probe = Invoke-RestMethod -Uri "http://127.0.0.1:$port/update-manifest.json" -TimeoutSec 10
+    $probeResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$port/update-manifest.json" -UseBasicParsing -TimeoutSec 10
+    Write-Host ('Self-update probe status: ' + $probeResponse.StatusCode)
+    Write-Host ('Self-update probe body: ' + $probeResponse.Content)
+    $probe = $probeResponse.Content | ConvertFrom-Json
     Assert-True ([string]$probe.version -eq '1.4.5.0') 'Local self-update test endpoint is not reachable.'
 
     $result = Wait-ScheduledTaskCompletion -TaskName $taskName
