@@ -24,8 +24,48 @@
     $harness.selfUpdateManifestUrl = "http://127.0.0.1:$port/update-manifest.json"
     $harness | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
-    $pythonArguments = '-m http.server {0} --bind 127.0.0.1 --directory "{1}"' -f $port,$webRoot
-    $server = Start-Process -FilePath 'python' -ArgumentList $pythonArguments -WindowStyle Hidden -PassThru
+    # Use a tiny raw TCP HTTP server. This avoids Python argument/quoting
+    # differences and is reachable from the SYSTEM scheduled task.
+    $server = Start-Job -ArgumentList $port,$webRoot -ScriptBlock {
+        param([int]$Port,[string]$Root)
+        $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback,$Port)
+        $listener.Start()
+        try {
+            while ($true) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = New-Object System.IO.StreamReader($stream,[Text.Encoding]::ASCII,$false,1024,$true)
+                    $requestLine = $reader.ReadLine()
+                    while (($line = $reader.ReadLine()) -ne $null -and $line -ne '') {}
+
+                    $requestTarget = if ($requestLine) { ($requestLine -split ' ')[1] } else { '/' }
+                    $absolutePath = ([Uri]('http://127.0.0.1' + $requestTarget)).AbsolutePath.TrimStart('/')
+                    $filePath = Join-Path $Root $absolutePath
+
+                    if (Test-Path -LiteralPath $filePath -PathType Leaf) {
+                        $body = [IO.File]::ReadAllBytes($filePath)
+                        $status = '200 OK'
+                        $contentType = if ($filePath.EndsWith('.json')) { 'application/json' } else { 'text/plain; charset=utf-8' }
+                    } else {
+                        $body = [Text.Encoding]::UTF8.GetBytes('Not found')
+                        $status = '404 Not Found'
+                        $contentType = 'text/plain; charset=utf-8'
+                    }
+
+                    $header = "HTTP/1.1 $status`r`nContent-Type: $contentType`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
+                    $headerBytes = [Text.Encoding]::ASCII.GetBytes($header)
+                    $stream.Write($headerBytes,0,$headerBytes.Length)
+                    $stream.Write($body,0,$body.Length)
+                    $stream.Flush()
+                } finally {
+                    if ($client) { $client.Dispose() }
+                }
+            }
+        } finally {
+            $listener.Stop()
+        }
+    }
     Start-Sleep -Seconds 2
 
     # Verify that the endpoint is available before asking the SYSTEM task to use it.
@@ -55,8 +95,9 @@
     Write-Host 'ALL WINDOWS END-TO-END TESTS PASSED.' -ForegroundColor Green
 }
 finally {
-    if ($server -and -not $server.HasExited) {
-        Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+    if ($server) {
+        Stop-Job -Job $server -ErrorAction SilentlyContinue
+        Remove-Job -Job $server -Force -ErrorAction SilentlyContinue
     }
     foreach ($name in @($helperTaskName,$taskName)) {
         try { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue } catch {}
