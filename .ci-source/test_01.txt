@@ -1,0 +1,115 @@
+$veyonRoot = Join-Path $fakeProgramFiles 'Veyon'
+$fakeBin = Join-Path $testRoot 'Fake Winget'
+$webRoot = Join-Path $testRoot 'Self Update Web'
+$configPath = Join-Path $testRoot 'test-harness.json'
+$taskName = 'Veyon AutoUpdate E2E ' + [guid]::NewGuid().ToString('N')
+$helperTaskName = 'Veyon AutoUpdate E2E Helper ' + [guid]::NewGuid().ToString('N')
+$server = $null
+
+try {
+    New-Item -ItemType Directory -Path $packageRoot,$base,$veyonRoot,$fakeBin,$webRoot -Force | Out-Null
+
+    foreach ($name in @(
+        'Veyon-AutoUpdate.ps1',
+        'Install-Veyon-AutoUpdate.ps1',
+        'Install-Veyon-AutoUpdate.cmd',
+        'Remove-Veyon-AutoUpdate.ps1',
+        'Remove-Veyon-AutoUpdate.cmd'
+    )) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot $name) -Destination (Join-Path $packageRoot $name) -Force
+    }
+
+    # Encoding and syntax checks.
+    foreach ($cmdName in @('Install-Veyon-AutoUpdate.cmd','Remove-Veyon-AutoUpdate.cmd')) {
+        $cmdPath = Join-Path $packageRoot $cmdName
+        $bytes = [IO.File]::ReadAllBytes($cmdPath)
+        Assert-True ($bytes[0] -eq 0x40) "$cmdName must start with @ and have no BOM."
+        $firstLine = [Text.Encoding]::ASCII.GetString($bytes).Split(@("`r`n","`n"),[StringSplitOptions]::None)[0]
+        Assert-True ($firstLine -eq '@echo off') "$cmdName first line is invalid."
+    }
+
+    foreach ($psName in @('Veyon-AutoUpdate.ps1','Install-Veyon-AutoUpdate.ps1','Remove-Veyon-AutoUpdate.ps1')) {
+        $tokens=$null; $errors=$null
+        [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $packageRoot $psName),
+            [ref]$tokens,
+            [ref]$errors
+        ) | Out-Null
+        Assert-True (-not $errors -or $errors.Count -eq 0) "$psName has a parser error."
+    }
+
+    $veyon104 = Join-Path $testRoot 'veyon-4.10.4.exe'
+    $veyon110 = Join-Path $testRoot 'veyon-4.11.0.exe'
+    Build-FakeVeyon -OutputPath $veyon104 -Version '4.10.4.0' -TypeName 'FakeVeyon104'
+    Build-FakeVeyon -OutputPath $veyon110 -Version '4.11.0.0' -TypeName 'FakeVeyon110'
+
+    foreach ($name in @(
+        'veyon-cli.exe',
+        'veyon-service.exe',
+        'veyon-server.exe',
+        'veyon-configurator.exe',
+        'veyon-wcli.exe',
+        'veyon-worker.exe'
+    )) {
+        Copy-Item -LiteralPath $veyon104 -Destination (Join-Path $veyonRoot $name) -Force
+    }
+
+    $fakeWinget = Join-Path $fakeBin 'winget.exe'
+    Build-FakeWinget -OutputPath $fakeWinget -VeyonRoot $veyonRoot -UpgradeExecutable $veyon110
+
+    $harness = [ordered]@{
+        base = $base
+        wingetExe = $fakeWinget
+        programFilesRoots = @($fakeProgramFiles)
+        taskName = $taskName
+        helperTaskName = $helperTaskName
+        selfUpdateManifestUrl = ''
+    }
+    $harness | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+    $env:VEYON_UPDATER_NO_PAUSE = '1'
+    $env:VEYON_UPDATER_TEST_HARNESS_CONFIG = $configPath
+
+    # Reproduce the exact path shape that failed previously: spaces and a
+    # package root ending in a directory separator. Validation must pass.
+    $validationScript = Join-Path $packageRoot 'Install-Veyon-AutoUpdate.ps1'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $validationScript -PackageRoot ($packageRoot + '\') -ValidationOnly -TestHarnessConfig $configPath
+    Assert-True ($LASTEXITCODE -eq 0) 'ValidationOnly failed for a trailing-backslash package path.'
+
+    # Run the real CMD wrapper and full SYSTEM installation.
+    & cmd.exe /d /c ('"' + (Join-Path $packageRoot 'Install-Veyon-AutoUpdate.cmd') + '"')
+    Assert-True ($LASTEXITCODE -eq 0) 'Install CMD returned a failure.'
+
+    $installedScript = Join-Path $base 'Veyon-AutoUpdate.ps1'
+    $log = Join-Path $base 'veyon_autoupdate.log'
+    Assert-True (Test-Path -LiteralPath $installedScript -PathType Leaf) 'Main script was not installed.'
+    Assert-True (Test-Path -LiteralPath $log -PathType Leaf) 'Log was not created.'
+
+    $logText = Get-Content -LiteralPath $log -Raw
+    Assert-Contains $logText 'NT AUTHORITY\SYSTEM' 'SYSTEM helper tasks were not executed.'
+    Assert-Contains $logText 'normaler Pin erfolgreich gesetzt und verifiziert' 'Normal pin was not verified.'
+    Assert-Contains $logText 'Installierte Version: 4.10.4.0' 'Installed Veyon version was not detected.'
+    Assert-Contains $logText 'Online verfuegbare Version laut winget: 4.11.0.0' 'Online version was not parsed.'
+    Assert-Contains $logText 'TESTLAUF: Update waere verfuegbar' 'SYSTEM test run did not complete.'
+
+    Assert-True ((Get-Content -LiteralPath (Join-Path $fakeBin 'pin.txt') -Raw).Trim() -eq 'Pinning') 'Normal pin state is missing.'
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    Assert-Contains ([string]$task.Actions[0].Arguments) ('-File "' + $installedScript + '"') 'Main task action does not quote the script path.'
+    Assert-Contains ([string]$task.Actions[0].Arguments) ('-TestHarnessConfig "' + $configPath + '"') 'Main task lost the test harness argument.'
+
+    # Run actual update as SYSTEM.
+    $result = Wait-ScheduledTaskCompletion -TaskName $taskName
+    Assert-True ($result -eq 0) "Main update task failed with result $result."
+
+    $versionOutput = & (Join-Path $veyonRoot 'veyon-cli.exe') --version
+    Assert-True ($versionOutput.Trim() -eq '4.11.0.0') 'Fake Veyon was not upgraded.'
+
+    $logText = Get-Content -LiteralPath $log -Raw
+    Assert-Contains $logText 'Ergebnis: UPDATE ERFOLGREICH.' 'Successful update was not logged.'
+    $wingetArgs = Get-Content -LiteralPath (Join-Path $fakeBin 'args.log') -Raw
+    Assert-Contains $wingetArgs '--include-pinned' 'Upgrade did not include --include-pinned.'
+    Assert-Contains $wingetArgs '--custom /NoMaster' 'Upgrade did not preserve the missing Master component.'
+
+    $upgradeCountPath = Join-Path $fakeBin 'upgrade-count.txt'
+    $countBefore = [int](Get-Content -LiteralPath $upgradeCountPath -Raw)
+    $result = Wait-ScheduledTaskCompletion -TaskName $taskName
