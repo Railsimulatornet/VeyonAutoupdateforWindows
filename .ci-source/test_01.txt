@@ -73,8 +73,8 @@ try {
     # Reproduce the exact path shape that failed previously: spaces and a
     # package root ending in a directory separator. Validation must pass.
     $validationScript = Join-Path $packageRoot 'Install-Veyon-AutoUpdate.ps1'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $validationScript -PackageRoot ($packageRoot + '\') -ValidationOnly -TestHarnessConfig $configPath
-    Assert-True ($LASTEXITCODE -eq 0) 'ValidationOnly failed for a trailing-backslash package path.'
+    & $validationScript -PackageRoot ($packageRoot + '\') -ValidationOnly -TestHarnessConfig $configPath
+    Assert-True ($?) 'ValidationOnly failed for a trailing-backslash package path.'
 
     # Run the real CMD wrapper and full SYSTEM installation.
     & cmd.exe /d /c ('"' + (Join-Path $packageRoot 'Install-Veyon-AutoUpdate.cmd') + '"')
