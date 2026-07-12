@@ -1,0 +1,4 @@
+Write-Host '- Selfupdate : Das PowerShell-Skript aktualisiert sich kuenftig selbst ueber GitHub.'
+Write-Host '- WinGet-Pin : Wird im SYSTEM-Kontext verwaltet; eine Benutzer-PowerShell muss ihn nicht anzeigen.'
+Write-Host ''
+Write-Host "Copyright Roman Glos 12.07.2026 V$PackageVersion fuer Realschule Roth"
