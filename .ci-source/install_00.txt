@@ -1,0 +1,177 @@
+# Install-Veyon-AutoUpdate.ps1
+# Copyright Roman Glos 12.07.2026 V1.4.4
+
+[CmdletBinding()]
+param(
+    [string]$PackageRoot = $PSScriptRoot,
+    [switch]$ValidationOnly,
+    [string]$TestHarnessConfig = ''
+)
+
+$ErrorActionPreference = 'Stop'
+$PackageVersion = '1.4.4'
+
+function Get-NormalizedPackageRoot {
+    param([AllowNull()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = $PSScriptRoot
+    }
+
+    $Path = $Path.Trim().Trim('"')
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw 'Der Paketpfad ist leer.'
+    }
+
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+    } catch {
+        throw ("Der Paketpfad ist ungueltig: " + $_.Exception.Message)
+    }
+
+    if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+        throw "Der Paketpfad wurde nicht gefunden: $full"
+    }
+
+    return (Get-Item -LiteralPath $full -ErrorAction Stop).FullName
+}
+
+$PackageRoot = Get-NormalizedPackageRoot -Path $PackageRoot
+
+$TestHarness = $null
+if (-not [string]::IsNullOrWhiteSpace($TestHarnessConfig)) {
+    $TestHarnessConfig = [System.IO.Path]::GetFullPath($TestHarnessConfig.Trim().Trim('"'))
+    if (-not (Test-Path -LiteralPath $TestHarnessConfig -PathType Leaf)) {
+        throw "Test-Harness-Konfiguration wurde nicht gefunden: $TestHarnessConfig"
+    }
+    $TestHarness = Get-Content -LiteralPath $TestHarnessConfig -Raw -ErrorAction Stop | ConvertFrom-Json
+}
+
+function Get-TestHarnessValue {
+    param([string]$Name)
+    if ($null -eq $TestHarness) { return $null }
+    $property = $TestHarness.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+$harnessBase = Get-TestHarnessValue -Name 'base'
+$Base = if (-not [string]::IsNullOrWhiteSpace([string]$harnessBase)) {
+    [System.IO.Path]::GetFullPath([string]$harnessBase)
+} elseif (-not [string]::IsNullOrWhiteSpace($env:VEYON_UPDATER_BASE)) {
+    [System.IO.Path]::GetFullPath(([string]$env:VEYON_UPDATER_BASE).Trim().Trim('"'))
+} else {
+    'C:\ProgramData\Veyon\Update'
+}
+$MainScriptName = 'Veyon-AutoUpdate.ps1'
+$MainScriptSource = Join-Path $PackageRoot $MainScriptName
+$MainScriptPath = Join-Path $Base $MainScriptName
+
+$harnessTaskName = Get-TestHarnessValue -Name 'taskName'
+$harnessHelperTaskName = Get-TestHarnessValue -Name 'helperTaskName'
+$TaskName = if (-not [string]::IsNullOrWhiteSpace([string]$harnessTaskName)) {
+    [string]$harnessTaskName
+} elseif ($env:VEYON_UPDATER_TASK_NAME) {
+    [string]$env:VEYON_UPDATER_TASK_NAME
+} else {
+    'Veyon AutoUpdate (winget)'
+}
+$HelperTaskName = if (-not [string]::IsNullOrWhiteSpace([string]$harnessHelperTaskName)) {
+    [string]$harnessHelperTaskName
+} elseif ($env:VEYON_UPDATER_HELPER_TASK_NAME) {
+    [string]$env:VEYON_UPDATER_HELPER_TASK_NAME
+} else {
+    'Veyon AutoUpdate Setup Helper'
+}
+
+function Add-TestHarnessArgument {
+    param([string]$Arguments)
+    if (-not [string]::IsNullOrWhiteSpace($TestHarnessConfig)) {
+        return ($Arguments + (' -TestHarnessConfig "{0}"' -f $TestHarnessConfig))
+    }
+    return $Arguments
+}
+
+function Test-IsAdministrator {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+function Get-NativeWindowsPowerShell {
+    $system32 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+        $sysnative = Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+        if (Test-Path -LiteralPath $sysnative -PathType Leaf) { return $sysnative }
+    }
+    return $system32
+}
+
+function Assert-PowerShellSyntax {
+    param([Parameter(Mandatory=$true)][string]$Path)
+
+    $tokens = $null
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile(
+        $Path,
+        [ref]$tokens,
+        [ref]$parseErrors
+    ) | Out-Null
+
+    if ($parseErrors -and $parseErrors.Count -gt 0) {
+        $first = $parseErrors | Select-Object -First 1
+        throw ("PowerShell-Syntaxfehler in " + $Path + ': ' + $first.Message)
+    }
+}
+
+function Remove-TaskQuietly {
+    param([string]$Name)
+    try {
+        Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+function New-SystemTaskDefinition {
+    param(
+        [Parameter(Mandatory=$true)][string]$Arguments,
+        [ValidateSet('Startup','Logon')][string]$TriggerType = 'Startup',
+        [switch]$WithDelay,
+        [string]$Description = ''
+    )
+
+    $powerShellExe = Get-NativeWindowsPowerShell
+    if (-not (Test-Path -LiteralPath $powerShellExe -PathType Leaf)) {
+        throw "Windows PowerShell wurde nicht gefunden: $powerShellExe"
+    }
+
+    $action = New-ScheduledTaskAction -Execute $powerShellExe -Argument $Arguments
+    if ($TriggerType -eq 'Logon') {
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+    } else {
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+    }
+    if ($WithDelay) {
+        $trigger.Delay = 'PT2M'
+    }
+
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+
+    return New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description $Description
+}
+
+function Invoke-SystemUpdaterMode {
+    param(
+        [Parameter(Mandatory=$true)][string]$ModeArguments,
+        [int]$TimeoutSeconds = 300
+    )
+
+    Remove-TaskQuietly -Name $HelperTaskName
