@@ -1,0 +1,165 @@
+        if ($cli) {
+            $text = (& $cli --version 2>&1) -join "`n"
+            $version = Parse-VersionText $text
+            if ($version) {
+                Write-Log ("Versionserkennung ueber CLI-Fallback: " + $cli)
+                return $version
+            }
+        }
+    } catch {}
+
+    Write-Log ("Hinweis: Keine Veyon-Programmdatei gefunden. Gepruefte Program-Files-Pfade: " + ($roots -join ', '))
+    return $null
+}
+
+function Ensure-WingetSources {
+    param([string]$WingetExe)
+
+    Write-Log 'winget: Quellen pruefen/aktualisieren ...'
+    $exitCode = Invoke-Proc -File $WingetExe -ArgList @('source','update')
+    if ($exitCode -eq 0) {
+        Write-Log 'winget source update: OK'
+        return $true
+    }
+
+    Write-Log ("winget source update Exitcode: " + $exitCode + ' - versuche Reset')
+    $resetCode = Invoke-Proc -File $WingetExe -ArgList @('source','reset','--force')
+    Write-Log ("winget source reset --force Exitcode: " + $resetCode)
+    $retryCode = Invoke-Proc -File $WingetExe -ArgList @('source','update')
+    Write-Log ("winget source update (nach Reset) Exitcode: " + $retryCode)
+    return ($retryCode -eq 0)
+}
+
+function Get-OnlineVersionStrict {
+    param([string]$WingetExe)
+
+    try {
+        $output = (& $WingetExe show --id $PkgId -e --source winget --disable-interactivity --accept-source-agreements 2>&1) -split "`r?`n"
+        foreach ($line in $output) {
+            if ($line -match '^\s*Version\s*:\s*([0-9]+(?:\.[0-9]+){1,3})\s*$') {
+                return Parse-VersionText $matches[1]
+            }
+        }
+    } catch {}
+    return $null
+}
+
+function Get-VeyonPinStatus {
+    param([string]$WingetExe)
+
+    try {
+        $output = @(& $WingetExe pin list 2>&1)
+        $exitCode = [int]$LASTEXITCODE
+        $line = $output |
+            ForEach-Object { [string]$_ } |
+            Where-Object { $_ -match [regex]::Escape($PkgId) } |
+            Select-Object -First 1
+
+        return [pscustomobject]@{
+            ExitCode = $exitCode
+            Exists   = (-not [string]::IsNullOrWhiteSpace([string]$line))
+            Blocking = ([string]$line -match '(?i)\bBlocking\b')
+            Line     = [string]$line
+            Output   = (($output | ForEach-Object { [string]$_ }) -join ' | ')
+        }
+    } catch {
+        return [pscustomobject]@{
+            ExitCode = 1
+            Exists   = $false
+            Blocking = $false
+            Line     = ''
+            Output   = $_.Exception.Message
+        }
+    }
+}
+
+function Set-VeyonNormalPin {
+    param([string]$WingetExe)
+
+    Write-Log 'WinGet-Pin: vorhandenen Veyon-Pin entfernen und normalen Pin setzen.'
+    try {
+        & $WingetExe pin remove --id $PkgId -e --source winget --disable-interactivity 2>&1 | Out-Null
+    } catch {}
+
+    try {
+        $output = @(& $WingetExe pin add --id $PkgId -e --source winget --disable-interactivity 2>&1)
+        $exitCode = [int]$LASTEXITCODE
+        if ($exitCode -ne 0) {
+            Write-Log ("WARNUNG: Normaler WinGet-Pin konnte nicht gesetzt werden. Exitcode=" + $exitCode + '; Ausgabe=' + (($output | ForEach-Object { [string]$_ }) -join ' | '))
+            return $exitCode
+        }
+
+        $status = Get-VeyonPinStatus -WingetExe $WingetExe
+        if ($status.Exists -and -not $status.Blocking) {
+            Write-Log ("WinGet-Pin: normaler Pin erfolgreich gesetzt und verifiziert. Eintrag=" + $status.Line)
+            return 0
+        }
+        if ($status.Exists -and $status.Blocking) {
+            Write-Log ("FEHLER: Nach der Pin-Konfiguration ist weiterhin ein Blocking-Pin vorhanden. Eintrag=" + $status.Line)
+            return 42
+        }
+
+        Write-Log ("FEHLER: WinGet meldete Erfolg, der Veyon-Pin ist in diesem Ausfuehrungskontext jedoch nicht vorhanden. Ausgabe=" + $status.Output)
+        return 43
+    } catch {
+        Write-Log ("WARNUNG: Normaler WinGet-Pin konnte nicht gesetzt werden: " + $_.Exception.Message)
+        return 1
+    }
+}
+
+function Remove-VeyonPin {
+    param([string]$WingetExe)
+
+    try {
+        $output = @(& $WingetExe pin remove --id $PkgId -e --source winget --disable-interactivity 2>&1)
+        $exitCode = [int]$LASTEXITCODE
+        $status = Get-VeyonPinStatus -WingetExe $WingetExe
+        if (-not $status.Exists) {
+            Write-Log 'WinGet-Pin: Veyon-Pin erfolgreich entfernt oder nicht vorhanden.'
+            return 0
+        }
+
+        Write-Log ("WARNUNG: Veyon-Pin ist nach dem Entfernen weiterhin vorhanden. Exitcode=" + $exitCode + '; Eintrag=' + $status.Line + '; Ausgabe=' + (($output | ForEach-Object { [string]$_ }) -join ' | '))
+        return 44
+    } catch {
+        Write-Log ("Hinweis: Veyon-Pin konnte nicht entfernt werden: " + $_.Exception.Message)
+        return 1
+    }
+}
+
+function Write-WingetExitExplanation {
+    param([int]$ExitCode)
+
+    switch ($ExitCode) {
+        0 { return }
+        -1978335128 {
+            Write-Log 'FEHLER: Ein Blocking-Pin verhindert das Veyon-Update. Der Installer muss den Blocking-Pin in einen normalen Pin umwandeln.'
+        }
+        -1978335215 {
+            Write-Log 'FEHLER: WinGet hat das Update wegen einer Abweichung zwischen Installer-Hash und Manifest abgebrochen.'
+        }
+        default {
+            Write-Log ("FEHLER: WinGet-Update fehlgeschlagen. Exitcode: " + $ExitCode)
+        }
+    }
+}
+
+Write-Log '=== Start ==='
+Write-Log ("Skriptversion: " + (Normalize-Version -Version $ScriptVersion))
+try {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+} catch {
+    $identity = [Environment]::UserName
+}
+$processBits = [IntPtr]::Size * 8
+$osBits = if ([Environment]::Is64BitOperatingSystem) { 64 } else { 32 }
+Write-Log ("Ausfuehrungskontext: " + $identity + '; PowerShell-Prozess=' + $processBits + '-Bit; Betriebssystem=' + $osBits + '-Bit')
+
+Invoke-SelfUpdate
+
+$wingetPath = Resolve-WingetPath
+if (-not $wingetPath) {
+    Write-Log 'winget im aktuellen Kontext nicht verfuegbar. Abbruch.'
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 32
