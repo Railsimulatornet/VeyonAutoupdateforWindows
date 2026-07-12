@@ -1,0 +1,55 @@
+name: Candidate Windows End-to-End Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v5
+
+      - name: Reconstruct candidate files
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE '.ci-source'
+          $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
+          New-Item -ItemType Directory -Path $candidate,(Join-Path $candidate 'tests') -Force | Out-Null
+
+          function Join-SourceParts {
+              param([string]$Pattern,[string]$Destination)
+              $parts = Get-ChildItem -LiteralPath $source -Filter $Pattern | Sort-Object Name
+              if (-not $parts) { throw "No source parts found for $Pattern" }
+              $text = ($parts | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join ''
+              [IO.File]::WriteAllText($Destination, $text, (New-Object Text.UTF8Encoding($true)))
+          }
+
+          Join-SourceParts 'main_*.txt' (Join-Path $candidate 'Veyon-AutoUpdate.ps1')
+          Join-SourceParts 'install_*.txt' (Join-Path $candidate 'Install-Veyon-AutoUpdate.ps1')
+          Join-SourceParts 'remove_*.txt' (Join-Path $candidate 'Remove-Veyon-AutoUpdate.ps1')
+          Join-SourceParts 'test_*.txt' (Join-Path $candidate 'tests\Test-EndToEnd.ps1')
+
+          foreach ($pair in @(
+              @{ Source='Install-Veyon-AutoUpdate.cmd.txt'; Destination='Install-Veyon-AutoUpdate.cmd' },
+              @{ Source='Remove-Veyon-AutoUpdate.cmd.txt'; Destination='Remove-Veyon-AutoUpdate.cmd' }
+          )) {
+              $text = Get-Content -LiteralPath (Join-Path $source $pair.Source) -Raw
+              $text = ($text -replace "`r?`n", "`r`n")
+              [IO.File]::WriteAllText((Join-Path $candidate $pair.Destination), $text, [Text.Encoding]::ASCII)
+          }
+
+          Get-ChildItem -LiteralPath $candidate -Recurse | Select-Object FullName,Length
+
+      - name: Run full Windows end-to-end test
+        shell: powershell
+        run: |
+          Set-ExecutionPolicy -Scope Process Bypass -Force
+          & (Join-Path $env:RUNNER_TEMP 'candidate\tests\Test-EndToEnd.ps1')
