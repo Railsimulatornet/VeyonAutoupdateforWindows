@@ -1,6 +1,64 @@
+        [ref]$tokens,
+        [ref]$parseErrors
+    ) | Out-Null
+
+    if ($parseErrors -and $parseErrors.Count -gt 0) {
+        $first = $parseErrors | Select-Object -First 1
+        throw ("PowerShell-Syntaxfehler in " + $Path + ': ' + $first.Message)
+    }
+}
+
+function Remove-TaskQuietly {
+    param([string]$Name)
+    try {
+        Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+function New-SystemTaskDefinition {
+    param(
+        [Parameter(Mandatory=$true)][string]$Arguments,
+        [ValidateSet('Startup','Logon')][string]$TriggerType = 'Startup',
+        [switch]$WithDelay,
+        [string]$Description = ''
+    )
+
+    $powerShellExe = Get-NativeWindowsPowerShell
+    if (-not (Test-Path -LiteralPath $powerShellExe -PathType Leaf)) {
+        throw "Windows PowerShell wurde nicht gefunden: $powerShellExe"
+    }
+
+    $action = New-ScheduledTaskAction -Execute $powerShellExe -Argument $Arguments
+    if ($TriggerType -eq 'Logon') {
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+    } else {
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+    }
+    if ($WithDelay) {
+        $trigger.Delay = 'PT2M'
+    }
+
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+
+    return New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description $Description
+}
+
+function Invoke-SystemUpdaterMode {
+    param(
+        [Parameter(Mandatory=$true)][string]$ModeArguments,
+        [int]$TimeoutSeconds = 300
+    )
+
+    Remove-TaskQuietly -Name $HelperTaskName
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" {1}' -f $MainScriptPath,$ModeArguments
     $arguments = Add-TestHarnessArgument -Arguments $arguments
-    $task = New-SystemTaskDefinition -Arguments $arguments -TriggerType Startup
+    $task = New-SystemTaskDefinition -Arguments $arguments -TriggerType Startup -Description 'Veyon AutoUpdate SYSTEM helper'
 
     try {
         Register-ScheduledTask -TaskName $HelperTaskName -InputObject $task -Force | Out-Null
@@ -59,77 +117,3 @@ foreach ($scriptName in @(
     Assert-PowerShellSyntax -Path (Join-Path $PackageRoot $scriptName)
 }
 
-$preflightMainArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $MainScriptPath
-$preflightMainArgs = Add-TestHarnessArgument -Arguments $preflightMainArgs
-[void](New-SystemTaskDefinition -Arguments $preflightMainArgs -TriggerType Startup -WithDelay -Description 'Veyon AutoUpdate preflight')
-$preflightHelperArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -SkipSelfUpdate -Testlauf' -f $MainScriptPath
-$preflightHelperArgs = Add-TestHarnessArgument -Arguments $preflightHelperArgs
-[void](New-SystemTaskDefinition -Arguments $preflightHelperArgs -TriggerType Startup -Description 'Veyon AutoUpdate helper preflight')
-
-if ($ValidationOnly) {
-    Write-Host 'VALIDIERUNG ERFOLGREICH.' -ForegroundColor Green
-    Write-Host ('Paketpfad: ' + $PackageRoot)
-    Write-Host ('Zielpfad : ' + $MainScriptPath)
-    exit 0
-}
-
-Write-Host ''
-Write-Host "[1/6] Zielordner vorbereiten: `"$Base`""
-New-Item -ItemType Directory -Path $Base -Force | Out-Null
-Get-ChildItem -LiteralPath $Base -Filter 'Veyon-AutoUpdate_v*_TEST.ps1' -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $Base 'Veyon-AutoUpdate.selfupdate.new.ps1') -Force -ErrorAction SilentlyContinue
-
-Write-Host '[2/6] PowerShell-Skript installieren ...'
-Copy-Item -LiteralPath $MainScriptSource -Destination $MainScriptPath -Force
-
-Write-Host '[3/6] WinGet-Pin im SYSTEM-Kontext konfigurieren und pruefen ...'
-try {
-    $pinResult = Invoke-SystemUpdaterMode -ModeArguments '-SkipSelfUpdate -ConfigurePinOnly' -TimeoutSeconds 180
-    if ($pinResult -eq 0) {
-        Write-Host 'SYSTEM-Pin wurde erfolgreich gesetzt und verifiziert.'
-    } else {
-        Write-Warning "Der SYSTEM-Pin-Task meldete Ergebnis $pinResult. Details stehen in $Base\veyon_autoupdate.log"
-    }
-} catch {
-    Write-Warning ('SYSTEM-Pin-Konfiguration fehlgeschlagen: ' + $_.Exception.Message)
-}
-
-Write-Host '[4/6] Geplante Aufgabe anlegen (SYSTEM, 2 Min. Verzoegerung) ...'
-$triggerType = 'Startup'
-$triggerText = 'Systemstart'
-try {
-    $hiberboot = Get-ItemPropertyValue -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name HiberbootEnabled -ErrorAction Stop
-    if ([int]$hiberboot -eq 1) {
-        $triggerType = 'Logon'
-        $triggerText = 'Benutzeranmeldung (Windows-Schnellstart aktiv)'
-    }
-} catch {}
-
-Remove-TaskQuietly -Name $TaskName
-$mainArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $MainScriptPath
-$mainArguments = Add-TestHarnessArgument -Arguments $mainArguments
-$mainTask = New-SystemTaskDefinition -Arguments $mainArguments -TriggerType $triggerType -WithDelay -Description 'Aktualisiert Veyon gezielt ueber WinGet und erhaelt die installierte Komponentenauswahl.'
-Register-ScheduledTask -TaskName $TaskName -InputObject $mainTask -Force | Out-Null
-Write-Host ('Trigger: ' + $triggerText)
-
-Write-Host '[5/6] Testlauf im SYSTEM-Kontext starten ...'
-try {
-    $testResult = Invoke-SystemUpdaterMode -ModeArguments '-SkipSelfUpdate -Testlauf' -TimeoutSeconds 300
-    if ($testResult -eq 0) {
-        Write-Host 'SYSTEM-Testlauf erfolgreich.'
-    } else {
-        Write-Warning "Der SYSTEM-Testlauf meldete Ergebnis $testResult. Details stehen in $Base\veyon_autoupdate.log"
-    }
-} catch {
-    Write-Warning ('SYSTEM-Testlauf fehlgeschlagen: ' + $_.Exception.Message)
-}
-
-Write-Host '[6/6] Installation abgeschlossen.'
-Write-Host ''
-Write-Host 'FERTIG.' -ForegroundColor Green
-Write-Host 'Die automatische Aktualisierung fuer Veyon wurde eingerichtet.'
-Write-Host ('- Trigger    : ' + $triggerText + ' plus ca. 2 Minuten')
-Write-Host '- Konto      : NT-AUTORITAET\SYSTEM'
-Write-Host ('- Skript     : ' + $MainScriptPath)
-Write-Host ('- Logdatei   : ' + (Join-Path $Base 'veyon_autoupdate.log'))
