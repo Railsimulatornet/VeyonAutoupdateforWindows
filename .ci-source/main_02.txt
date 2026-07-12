@@ -1,0 +1,184 @@
+        $candidates += @($harnessRoots | ForEach-Object { [string]$_ })
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:VEYON_UPDATER_PROGRAMFILES_ROOTS)) {
+        $candidates += @(
+            ([string]$env:VEYON_UPDATER_PROGRAMFILES_ROOTS) -split ';' |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        )
+    }
+
+    if ($Env:ProgramFiles) { $candidates += [string]$Env:ProgramFiles }
+    if (${Env:ProgramFiles(x86)}) { $candidates += [string]${Env:ProgramFiles(x86)} }
+
+    if ($Env:SystemDrive) {
+        $candidates += (Join-Path $Env:SystemDrive 'Program Files')
+        $candidates += (Join-Path $Env:SystemDrive 'Program Files (x86)')
+    }
+
+    foreach ($view in @(
+        [Microsoft.Win32.RegistryView]::Registry64,
+        [Microsoft.Win32.RegistryView]::Registry32
+    )) {
+        try {
+            $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+                [Microsoft.Win32.RegistryHive]::LocalMachine,
+                $view
+            )
+            $key = $baseKey.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion')
+            if ($key) {
+                foreach ($name in @('ProgramFilesDir','ProgramFilesDir (x86)')) {
+                    $value = [string]$key.GetValue($name, $null)
+                    if (-not [string]::IsNullOrWhiteSpace($value)) {
+                        $candidates += $value
+                    }
+                }
+                $key.Close()
+            }
+            $baseKey.Close()
+        } catch {}
+    }
+
+    $result = @()
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace([string]$candidate)) { continue }
+        try {
+            $full = [System.IO.Path]::GetFullPath([string]$candidate)
+            if (Test-Path -LiteralPath $full -PathType Container) {
+                $result += $full.TrimEnd('\')
+            }
+        } catch {}
+    }
+
+    return @($result | Select-Object -Unique)
+}
+
+function Resolve-WingetPath {
+    $harnessWinget = Get-TestHarnessValue -Name 'wingetExe'
+    $overrideCandidate = if (-not [string]::IsNullOrWhiteSpace([string]$harnessWinget)) {
+        [string]$harnessWinget
+    } else {
+        [string]$env:VEYON_UPDATER_WINGET_EXE
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($overrideCandidate)) {
+        $override = $overrideCandidate
+        try {
+            $override = [System.IO.Path]::GetFullPath($override.Trim().Trim('"'))
+        } catch {
+            $override = $null
+        }
+        if ($override -and (Test-Path -LiteralPath $override -PathType Leaf)) {
+            return $override
+        }
+    }
+
+    try {
+        $cmd = Get-Command winget.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source -PathType Leaf)) {
+            return $cmd.Source
+        }
+    } catch {}
+
+    $candidates = @()
+    foreach ($root in Get-ProgramFilesRoots) {
+        try {
+            $candidates += @(Get-ChildItem -Path (Join-Path $root 'WindowsApps\Microsoft.DesktopAppInstaller_*\winget.exe') -ErrorAction SilentlyContinue)
+        } catch {}
+    }
+
+    $candidate = $candidates |
+        Sort-Object LastWriteTime,FullName -Descending |
+        Select-Object -First 1
+    if ($candidate -and $candidate.FullName) {
+        return $candidate.FullName
+    }
+
+    foreach ($path in @(
+        (Join-Path $Env:SystemRoot 'System32\winget.exe'),
+        (Join-Path $Env:SystemRoot 'Sysnative\winget.exe')
+    )) {
+        if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return $path
+        }
+    }
+
+    return $null
+}
+
+function Invoke-Proc {
+    param(
+        [Parameter(Mandatory=$true)][string]$File,
+        [string[]]$ArgList
+    )
+
+    $psi = @{
+        FilePath    = $File
+        WindowStyle = 'Hidden'
+        PassThru    = $true
+        Wait        = $true
+    }
+    if ($ArgList -and $ArgList.Count -gt 0) { $psi.ArgumentList = $ArgList }
+    $process = Start-Process @psi
+    return [int]$process.ExitCode
+}
+
+function Invoke-NativeCaptured {
+    param(
+        [Parameter(Mandatory=$true)][string]$File,
+        [string[]]$ArgList,
+        [Parameter(Mandatory=$true)][string]$OutputPath
+    )
+
+    try {
+        $output = @(& $File @ArgList 2>&1)
+        $exitCode = [int]$LASTEXITCODE
+        $lines = @(
+            ('Command: ' + $File + ' ' + ($ArgList -join ' ')),
+            ('ExitCode: ' + $exitCode),
+            ''
+        )
+        $lines += @($output | ForEach-Object { [string]$_ })
+        [System.IO.File]::WriteAllLines($OutputPath, [string[]]$lines, (New-Object System.Text.UTF8Encoding($true)))
+        return $exitCode
+    } catch {
+        $message = 'Ausfuehrung fehlgeschlagen: ' + $_.Exception.Message
+        [System.IO.File]::WriteAllText($OutputPath, $message, (New-Object System.Text.UTF8Encoding($true)))
+        return 1
+    }
+}
+
+function Get-VeyonCliPath {
+    $cmdPath = $null
+    try {
+        $cmdPath = Get-Command veyon-cli.exe -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
+    } catch {}
+
+    $candidates = @()
+    foreach ($root in Get-ProgramFilesRoots) {
+        $candidates += (Join-Path $root 'Veyon\veyon-cli.exe')
+        $candidates += (Join-Path $root 'Veyon\veyon-ctl.exe')
+    }
+    if ($cmdPath) { $candidates += $cmdPath }
+
+    $candidate = $candidates |
+        Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
+        Select-Object -Unique |
+        Select-Object -First 1
+
+    if ($candidate) { return $candidate }
+    return $null
+}
+
+function Test-MasterPresent {
+    foreach ($root in Get-ProgramFilesRoots) {
+        $path = Join-Path $root 'Veyon\veyon-master.exe'
+        if (Test-Path -LiteralPath $path -PathType Leaf) { return $true }
+    }
+    return $false
+}
+
+function Rotate-Backups {
+    try {
+        $keep = 3
