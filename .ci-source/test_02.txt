@@ -28,13 +28,21 @@
     $server = Start-Process -FilePath 'python' -ArgumentList $pythonArguments -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 2
 
+    # Verify that the endpoint is available before asking the SYSTEM task to use it.
+    $probe = Invoke-RestMethod -Uri "http://127.0.0.1:$port/update-manifest.json" -TimeoutSec 10
+    Assert-True ([string]$probe.version -eq '1.4.5.0') 'Local self-update test endpoint is not reachable.'
+
     $result = Wait-ScheduledTaskCompletion -TaskName $taskName
     Assert-True ($result -eq 0) "Self-update task failed with result $result."
+
+    $logText = Get-Content -LiteralPath $log -Raw
+    Write-Host '=== LOG AFTER SELF-UPDATE TEST ==='
+    Write-Host $logText
+    Write-Host '=== END LOG AFTER SELF-UPDATE TEST ==='
 
     $installedText = Get-Content -LiteralPath $installedScript -Raw
     Assert-Contains $installedText "[version]'1.4.5.0'" 'Self-update did not replace the installed script.'
     Assert-True (Test-Path -LiteralPath (Join-Path $base 'Veyon-AutoUpdate.selfupdate.bak.ps1') -PathType Leaf) 'Self-update backup is missing.'
-    $logText = Get-Content -LiteralPath $log -Raw
     Assert-Contains $logText 'Skript-Self-Update installiert: 1.4.4.0 -> 1.4.5.0' 'Self-update success was not logged.'
 
     # Full removal via CMD, including SYSTEM pin cleanup.
