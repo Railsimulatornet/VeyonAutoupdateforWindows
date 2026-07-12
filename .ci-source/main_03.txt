@@ -1,0 +1,158 @@
+        $json = @(Get-ChildItem -Path $BkDir -Filter 'config-*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+        $reg  = @(Get-ChildItem -Path $BkDir -Filter 'registry-backup-*.reg' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+
+        if ($json.Count -gt $keep) {
+            foreach ($file in $json[$keep..($json.Count - 1)]) {
+                try {
+                    Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
+                    Write-Log ("Backup-Rotation: geloescht (JSON): " + $file.FullName)
+                } catch {}
+            }
+        }
+        if ($reg.Count -gt $keep) {
+            foreach ($file in $reg[$keep..($reg.Count - 1)]) {
+                try {
+                    Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
+                    Write-Log ("Backup-Rotation: geloescht (REG): " + $file.FullName)
+                } catch {}
+            }
+        }
+    } catch {
+        Write-Log ("Backup-Rotation fehlgeschlagen: " + $_.Exception.Message)
+    }
+}
+
+function Export-RegistryBackup {
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $registryBackup = Join-Path $BkDir ("registry-backup-{0}.reg" -f $timestamp)
+    try {
+        $exitCode = Invoke-Proc -File 'reg.exe' -ArgList @('export','HKLM\Software\Veyon Solutions',$registryBackup,'/y','/reg:64')
+        if ($exitCode -eq 0 -and (Test-Path $registryBackup -PathType Leaf)) {
+            Write-Log ("Konfigurations-Backup (Registry) erstellt: " + $registryBackup)
+        } else {
+            Write-Log ("Konfigurations-Backup (Registry) Exitcode: " + $exitCode)
+        }
+    } catch {
+        Write-Log ("Konfigurations-Backup (Registry) fehlgeschlagen: " + $_.Exception.Message)
+    }
+    Rotate-Backups
+}
+
+function Backup-VeyonConfig {
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    try {
+        $cli = Get-VeyonCliPath
+        if ($cli) {
+            $backup = Join-Path $BkDir ("config-{0}.json" -f $timestamp)
+            $exitCode = Invoke-Proc -File $cli -ArgList @('config','export',$backup)
+            if ($exitCode -eq 0 -and (Test-Path $backup -PathType Leaf)) {
+                Write-Log ("Konfigurations-Backup (CLI) erstellt: " + $backup)
+                Rotate-Backups
+                return
+            }
+            Write-Log ("Konfigurations-Backup (CLI) Exitcode: " + $exitCode + ' - wechsle auf Registry-Backup')
+        } else {
+            Write-Log 'veyon-cli nicht gefunden - wechsle auf Registry-Backup'
+        }
+    } catch {
+        Write-Log ("Konfigurations-Backup (CLI) fehlgeschlagen: " + $_.Exception.Message + ' - wechsle auf Registry-Backup')
+    }
+    Export-RegistryBackup
+}
+
+function Get-VeyonRegistryVersion {
+    $found = @()
+
+    foreach ($view in @(
+        [Microsoft.Win32.RegistryView]::Registry64,
+        [Microsoft.Win32.RegistryView]::Registry32
+    )) {
+        try {
+            $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+                [Microsoft.Win32.RegistryHive]::LocalMachine,
+                $view
+            )
+            $uninstall = $baseKey.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')
+            if ($uninstall) {
+                foreach ($subName in $uninstall.GetSubKeyNames()) {
+                    try {
+                        $sub = $uninstall.OpenSubKey($subName)
+                        $displayName = [string]$sub.GetValue('DisplayName', '')
+                        if ($displayName -match '^Veyon(?:\s|$)') {
+                            $version = Parse-VersionText ([string]$sub.GetValue('DisplayVersion', ''))
+                            if ($version) { $found += $version }
+                        }
+                        $sub.Close()
+                    } catch {}
+                }
+                $uninstall.Close()
+            }
+            $baseKey.Close()
+        } catch {}
+    }
+
+    if ($found.Count -gt 0) {
+        return @($found | Sort-Object | Select-Object -First 1)[0]
+    }
+    return $null
+}
+
+function Get-VeyonInstalledVersion {
+    $names = @(
+        'veyon-service.exe',
+        'veyon-server.exe',
+        'veyon-cli.exe',
+        'veyon-configurator.exe',
+        'veyon-wcli.exe',
+        'veyon-worker.exe',
+        'veyon-master.exe'
+    )
+
+    $files = @()
+    $roots = @(Get-ProgramFilesRoots)
+    foreach ($root in $roots) {
+        foreach ($name in $names) {
+            $files += (Join-Path $root (Join-Path 'Veyon' $name))
+        }
+    }
+    $files = @($files | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -Unique)
+
+    $found = @()
+    foreach ($file in $files) {
+        try {
+            $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file)
+            $version = Parse-VersionText $info.FileVersion
+            if (-not $version) { $version = Parse-VersionText $info.ProductVersion }
+            if ($version) {
+                $found += [pscustomobject]@{
+                    Version = $version
+                    Path    = $file
+                }
+            }
+        } catch {}
+    }
+
+    if ($found.Count -gt 0) {
+        $ordered = @($found | Sort-Object Version,Path)
+        $versions = @($ordered | Select-Object -ExpandProperty Version -Unique)
+
+        if ($versions.Count -gt 1) {
+            Write-Log 'WARNUNG: Unterschiedliche Veyon-Dateiversionen gefunden. Fuer die Update-Entscheidung wird die niedrigste Version verwendet.'
+            foreach ($entry in $ordered) {
+                Write-Log ("  " + $entry.Version + ' - ' + $entry.Path)
+            }
+        }
+
+        $selected = $ordered | Select-Object -First 1
+        Write-Log ("Versionserkennung ueber Datei: " + $selected.Path)
+        return $selected.Version
+    }
+
+    $registryVersion = Get-VeyonRegistryVersion
+    if ($registryVersion) {
+        Write-Log 'Versionserkennung ueber Uninstall-Registry-Fallback.'
+        return $registryVersion
+    }
+
+    try {
+        $cli = Get-VeyonCliPath
