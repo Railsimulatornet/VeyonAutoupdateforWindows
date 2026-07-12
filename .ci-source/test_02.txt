@@ -1,0 +1,61 @@
+    Assert-True ($result -eq 0) "Second main task run failed with result $result."
+    $countAfter = [int](Get-Content -LiteralPath $upgradeCountPath -Raw)
+    Assert-True ($countAfter -eq $countBefore) 'Already-current run incorrectly invoked upgrade again.'
+
+    # Self-update via a local HTTP endpoint. The local URL is accepted only
+    # when the explicit TestHarnessConfig is supplied.
+    $remoteScript = Join-Path $webRoot 'Veyon-AutoUpdate.ps1'
+    $remoteText = Get-Content -LiteralPath $installedScript -Raw
+    $remoteText = $remoteText.Replace("[version]'1.4.4.0'", "[version]'1.4.5.0'")
+    $remoteText = $remoteText.Replace('V1.4.4', 'V1.4.5')
+    [IO.File]::WriteAllText($remoteScript, $remoteText, (New-Object Text.UTF8Encoding($true)))
+    $remoteHash = (Get-FileHash -LiteralPath $remoteScript -Algorithm SHA256).Hash.ToUpperInvariant()
+
+    $port = 18765
+    $manifestPath = Join-Path $webRoot 'update-manifest.json'
+    [ordered]@{
+        schemaVersion = 1
+        channel = 'test'
+        version = '1.4.5.0'
+        scriptUrl = "http://127.0.0.1:$port/Veyon-AutoUpdate.ps1"
+        sha256 = $remoteHash
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
+    $harness.selfUpdateManifestUrl = "http://127.0.0.1:$port/update-manifest.json"
+    $harness | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding UTF8
+
+    $pythonArguments = '-m http.server {0} --bind 127.0.0.1 --directory "{1}"' -f $port,$webRoot
+    $server = Start-Process -FilePath 'python' -ArgumentList $pythonArguments -WindowStyle Hidden -PassThru
+    Start-Sleep -Seconds 2
+
+    $result = Wait-ScheduledTaskCompletion -TaskName $taskName
+    Assert-True ($result -eq 0) "Self-update task failed with result $result."
+
+    $installedText = Get-Content -LiteralPath $installedScript -Raw
+    Assert-Contains $installedText "[version]'1.4.5.0'" 'Self-update did not replace the installed script.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $base 'Veyon-AutoUpdate.selfupdate.bak.ps1') -PathType Leaf) 'Self-update backup is missing.'
+    $logText = Get-Content -LiteralPath $log -Raw
+    Assert-Contains $logText 'Skript-Self-Update installiert: 1.4.4.0 -> 1.4.5.0' 'Self-update success was not logged.'
+
+    # Full removal via CMD, including SYSTEM pin cleanup.
+    & cmd.exe /d /c ('"' + (Join-Path $packageRoot 'Remove-Veyon-AutoUpdate.cmd') + '"')
+    Assert-True ($LASTEXITCODE -eq 0) 'Remove CMD returned a failure.'
+    Assert-True (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Main task was not removed.'
+    Assert-True (-not (Test-Path -LiteralPath $base)) 'Installation directory was not removed.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeBin 'pin.txt'))) 'SYSTEM pin was not removed.'
+
+    Write-Host 'ALL WINDOWS END-TO-END TESTS PASSED.' -ForegroundColor Green
+}
+finally {
+    if ($server -and -not $server.HasExited) {
+        Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($name in @($helperTaskName,$taskName)) {
+        try { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+    }
+    Remove-Item Env:VEYON_UPDATER_NO_PAUSE -ErrorAction SilentlyContinue
+    Remove-Item Env:VEYON_UPDATER_TEST_HARNESS_CONFIG -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $testRoot) {
+        Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
