@@ -1,0 +1,45 @@
+@echo off
+:: Veyon Auto-Update Einrichtung
+:: Copyright Roman Glos 12.07.2026 V1.4.4
+chcp 65001 >nul
+setlocal EnableExtensions
+set "POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "POWERSHELL=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+title Veyon Auto-Update Einrichtung
+
+if not exist "%~dp0Install-Veyon-AutoUpdate.ps1" (
+  echo.
+  echo FEHLER: Install-Veyon-AutoUpdate.ps1 wurde nicht im Paket gefunden.
+  echo Bitte die ZIP-Datei vollstaendig entpacken und erneut starten.
+  echo.
+  if not "%VEYON_UPDATER_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+if not exist "%~dp0Veyon-AutoUpdate.ps1" (
+  echo.
+  echo FEHLER: Veyon-AutoUpdate.ps1 wurde nicht im Paket gefunden.
+  echo Bitte die ZIP-Datei vollstaendig entpacken und erneut starten.
+  echo.
+  if not "%VEYON_UPDATER_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+
+"%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -Command "$id=[Security.Principal.WindowsIdentity]::GetCurrent();$p=New-Object Security.Principal.WindowsPrincipal($id);if($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){exit 0}else{exit 1}"
+if errorlevel 1 (
+  echo.
+  echo Administratorrechte werden angefordert ...
+  "%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+
+if defined VEYON_UPDATER_TEST_HARNESS_CONFIG (
+  "%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-Veyon-AutoUpdate.ps1" -TestHarnessConfig "%VEYON_UPDATER_TEST_HARNESS_CONFIG%"
+) else (
+  "%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-Veyon-AutoUpdate.ps1"
+)
+set "RC=%ERRORLEVEL%"
+echo.
+if not "%RC%"=="0" echo FEHLER: Installation wurde mit Exitcode %RC% beendet.
+echo Dieses Fenster kann jetzt geschlossen werden.
+if not "%VEYON_UPDATER_NO_PAUSE%"=="1" pause
+exit /b %RC%
