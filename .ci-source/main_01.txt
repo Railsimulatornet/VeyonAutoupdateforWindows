@@ -1,0 +1,132 @@
+        $scriptUrl = [string]$manifest.scriptUrl
+        $expectedHash = ([string]$manifest.sha256).Trim().ToUpperInvariant()
+        $isProductionUrl = ($scriptUrl -match '^https://raw\.githubusercontent\.com/Railsimulatornet/VeyonAutoupdateforWindows/')
+        $isTestUrl = ($TestMode -and $scriptUrl -match '^https?://(?:127\.0\.0\.1|localhost)(?::\d+)?/')
+        if (-not $isProductionUrl -and -not $isTestUrl) {
+            throw 'Self-Update-Manifest enthaelt keine erlaubte Skript-URL.'
+        }
+        if ($expectedHash -notmatch '^[0-9A-F]{64}$') {
+            throw 'Self-Update-Manifest enthaelt keinen gueltigen SHA256-Hash.'
+        }
+
+        $downloadOk = $false
+        $actualHash = $null
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            $scriptSeparator = if ($scriptUrl.Contains('?')) { '&' } else { '?' }
+            $downloadUri = $scriptUrl + $scriptSeparator + 't=' + ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) + '&a=' + $attempt
+            Invoke-WebRequest -Uri $downloadUri -Headers $headers -UseBasicParsing -TimeoutSec 45 -OutFile $tmp
+
+            if (Test-Path $tmp -PathType Leaf) {
+                $actualHash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToUpperInvariant()
+                if ($actualHash -eq $expectedHash) {
+                    $downloadOk = $true
+                    break
+                }
+            }
+
+            if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
+        }
+
+        if (-not $downloadOk) {
+            throw ("SHA256-Pruefung des neuen Skripts fehlgeschlagen. Erwartet=" + $expectedHash + ", erhalten=" + $actualHash)
+        }
+
+        $remoteText = Get-Content -LiteralPath $tmp -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($remoteText) -or $remoteText.Length -lt 8000) {
+            throw 'Heruntergeladenes Skript ist leer oder unerwartet klein.'
+        }
+
+        $versionMatch = [regex]::Match(
+            $remoteText,
+            '(?m)^\s*\$ScriptVersion\s*=\s*\[version\]\s*[''\"]([0-9]+(?:\.[0-9]+){1,3})[''\"]\s*$'
+        )
+        if (-not $versionMatch.Success) {
+            throw 'Version im heruntergeladenen Skript konnte nicht ermittelt werden.'
+        }
+
+        $embeddedVersion = Parse-VersionText $versionMatch.Groups[1].Value
+        if ($embeddedVersion -ne $remoteVersion) {
+            throw ("Versionsabweichung zwischen Manifest und Skript: Manifest=" + $remoteVersion + ", Skript=" + $embeddedVersion)
+        }
+
+        if ($remoteText -notmatch [regex]::Escape($PkgId) -or
+            $remoteText -notmatch 'function\s+Get-OnlineVersionStrict' -or
+            $remoteText -notmatch 'function\s+Invoke-SelfUpdate') {
+            throw 'Remote-Datei hat nicht die erwartete Veyon-Updater-Struktur.'
+        }
+
+        $tokens = $null
+        $parseErrors = $null
+        [System.Management.Automation.Language.Parser]::ParseFile(
+            $tmp,
+            [ref]$tokens,
+            [ref]$parseErrors
+        ) | Out-Null
+
+        if ($parseErrors -and $parseErrors.Count -gt 0) {
+            $first = $parseErrors | Select-Object -First 1
+            throw ("Remote-Skript enthaelt einen Syntaxfehler: " + $first.Message)
+        }
+
+        Copy-Item -LiteralPath $MainScriptPath -Destination $bak -Force
+        try {
+            Copy-Item -LiteralPath $tmp -Destination $MainScriptPath -Force
+        } catch {
+            Copy-Item -LiteralPath $bak -Destination $MainScriptPath -Force -ErrorAction SilentlyContinue
+            throw
+        }
+
+        Write-Log ("Skript-Self-Update installiert: " + $localVersion + " -> " + $remoteVersion)
+        Write-Log ("Skript-Backup: " + $bak)
+        Write-Log 'Skript wird mit der neuen Version neu gestartet.'
+
+        $relaunch = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -SkipSelfUpdate' -f $MainScriptPath
+        if ($Testlauf) { $relaunch += ' -Testlauf' }
+        if (-not [string]::IsNullOrWhiteSpace($TestHarnessConfig)) {
+            $relaunch += (' -TestHarnessConfig "{0}"' -f $TestHarnessConfig)
+        }
+
+        $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+            $sysnative = Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+            if (Test-Path -LiteralPath $sysnative -PathType Leaf) { $powershellExe = $sysnative }
+        }
+        $p = Start-Process -FilePath $powershellExe -ArgumentList $relaunch -WindowStyle Hidden -Wait -PassThru
+        exit $p.ExitCode
+    } catch {
+        Write-Log ("Warnung: Skript-Self-Update fehlgeschlagen: " + $_.Exception.Message)
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Trim-LogIfOversize {
+    $maxBytes = 1MB
+    try {
+        if (Test-Path $Log) {
+            $len = (Get-Item $Log).Length
+            if ($len -gt $maxBytes) {
+                $raw = Get-Content -LiteralPath $Log -Raw -ErrorAction Stop
+                $marker = '=== Start ==='
+                $idx = $raw.LastIndexOf($marker)
+                if ($idx -ge 0) {
+                    $keep = $raw.Substring($idx)
+                    Set-Content -LiteralPath $Log -Value $keep -Encoding UTF8
+                    Write-Log 'Hinweis: Log gekuerzt (aeltere Eintraege entfernt; letzter Lauf beibehalten).'
+                } else {
+                    Clear-Content -LiteralPath $Log
+                    Write-Log 'Hinweis: Log gekuerzt (kein Marker gefunden).'
+                }
+            }
+        }
+    } catch {
+        try { Write-Log ("Warnung: Log-Trimming fehlgeschlagen: " + $_.Exception.Message) } catch {}
+    }
+}
+
+function Get-ProgramFilesRoots {
+    $candidates = @()
+
+    $harnessRoots = Get-TestHarnessValue -Name 'programFilesRoots'
+    if ($null -ne $harnessRoots) {
