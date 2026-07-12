@@ -49,7 +49,27 @@ jobs:
           Get-ChildItem -LiteralPath $candidate -Recurse | Select-Object FullName,Length
 
       - name: Run full Windows end-to-end test
+        id: e2e
         shell: powershell
         run: |
           Set-ExecutionPolicy -Scope Process Bypass -Force
-          & (Join-Path $env:RUNNER_TEMP 'candidate\tests\Test-EndToEnd.ps1')
+          $log = Join-Path $env:RUNNER_TEMP 'windows-e2e-output.txt'
+          try {
+              & (Join-Path $env:RUNNER_TEMP 'candidate\tests\Test-EndToEnd.ps1') *>&1 |
+                  Tee-Object -FilePath $log
+              if ($LASTEXITCODE -ne 0) {
+                  throw "End-to-end test returned exit code $LASTEXITCODE"
+              }
+          }
+          catch {
+              ($_ | Out-String) | Add-Content -LiteralPath $log
+              throw
+          }
+
+      - name: Upload end-to-end output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-e2e-output
+          path: ${{ runner.temp }}\windows-e2e-output.txt
+          if-no-files-found: error
