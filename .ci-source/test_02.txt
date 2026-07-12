@@ -13,13 +13,14 @@
 
     $port = 18765
     $manifestPath = Join-Path $webRoot 'update-manifest.json'
-    [ordered]@{
+    $manifestJson = [ordered]@{
         schemaVersion = 1
         channel = 'test'
         version = '1.4.5.0'
         scriptUrl = "http://127.0.0.1:$port/Veyon-AutoUpdate.ps1"
         sha256 = $remoteHash
-    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+    } | ConvertTo-Json -Depth 4
+    [IO.File]::WriteAllText($manifestPath, $manifestJson, (New-Object Text.UTF8Encoding($false)))
 
     $harness.selfUpdateManifestUrl = "http://127.0.0.1:$port/update-manifest.json"
     $harness | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding UTF8
@@ -39,11 +40,13 @@
                     if (Test-Path -LiteralPath $filePath -PathType Leaf) {
                         $body = [IO.File]::ReadAllBytes($filePath)
                         $context.Response.StatusCode = 200
-                        $context.Response.ContentType = if ($filePath.EndsWith('.json')) { 'application/json' } else { 'text/plain; charset=utf-8' }
+                        $context.Response.ContentType = if ($filePath.EndsWith('.json')) { 'application/json; charset=utf-8' } else { 'text/plain; charset=utf-8' }
+                        $context.Response.ContentEncoding = [Text.Encoding]::UTF8
                     } else {
                         $body = [Text.Encoding]::UTF8.GetBytes('Not found')
                         $context.Response.StatusCode = 404
                         $context.Response.ContentType = 'text/plain; charset=utf-8'
+                        $context.Response.ContentEncoding = [Text.Encoding]::UTF8
                     }
                     $context.Response.ContentLength64 = $body.Length
                     $context.Response.OutputStream.Write($body,0,$body.Length)
