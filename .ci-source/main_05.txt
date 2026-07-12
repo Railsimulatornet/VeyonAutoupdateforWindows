@@ -1,0 +1,135 @@
+}
+
+try {
+    $wingetVersion = & $wingetPath --version 2>$null
+    Write-Log ("winget gefunden: " + $wingetPath + ' (' + $wingetVersion + ')')
+} catch {
+    Write-Log ("winget gefunden, Versionsabfrage fehlgeschlagen: " + $_.Exception.Message)
+}
+
+if ($ConfigurePinOnly) {
+    $pinResult = Set-VeyonNormalPin -WingetExe $wingetPath
+    Write-Log '=== Ende (Pin-Konfiguration) ==='
+    Trim-LogIfOversize
+    exit $pinResult
+}
+
+if ($RemovePinOnly) {
+    $pinResult = Remove-VeyonPin -WingetExe $wingetPath
+    Write-Log '=== Ende (Pin-Entfernung) ==='
+    Trim-LogIfOversize
+    exit $pinResult
+}
+
+$beforeVer = Get-VeyonInstalledVersion
+if ($beforeVer) {
+    Write-Log ("Installierte Version: " + $beforeVer)
+} else {
+    Write-Log 'Installierte Version: unbekannt'
+}
+
+[void](Ensure-WingetSources -WingetExe $wingetPath)
+$onlineVer = Get-OnlineVersionStrict -WingetExe $wingetPath
+if ($onlineVer) {
+    Write-Log ("Online verfuegbare Version laut winget: " + $onlineVer)
+} else {
+    Write-Log 'Online-Version konnte nicht zuverlaessig ermittelt werden.'
+}
+
+if ($Testlauf) {
+    if ($beforeVer -and $onlineVer) {
+        if ($onlineVer -gt $beforeVer) {
+            Write-Log 'TESTLAUF: Update waere verfuegbar - keine Installation im Testmodus.'
+        } else {
+            Write-Log 'TESTLAUF: Bereits aktuell - keine Installation noetig.'
+        }
+        Write-Log '=== Ende (Testlauf) ==='
+        Trim-LogIfOversize
+        exit 0
+    }
+
+    Write-Log 'TESTLAUF: Versionsvergleich nicht moeglich.'
+    Write-Log '=== Ende (Testlauf) ==='
+    Trim-LogIfOversize
+    exit 30
+}
+
+if (-not $beforeVer) {
+    Write-Log 'FEHLER: Die installierte Veyon-Version konnte nicht ermittelt werden. Aus Sicherheitsgruenden wird kein Upgrade gestartet.'
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 31
+}
+
+if (-not $onlineVer) {
+    Write-Log 'FEHLER: Die Online-Version konnte nicht ermittelt werden. Aus Sicherheitsgruenden wird kein Upgrade gestartet.'
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 30
+}
+
+if ($onlineVer -le $beforeVer) {
+    Write-Log 'Kein Update notwendig - Skip (kein Backup, kein Upgrade).'
+    Write-Log 'Ergebnis: Bereits aktuell - keine Aenderung erforderlich.'
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 0
+}
+
+$masterWasPresent = Test-MasterPresent
+if ($masterWasPresent) {
+    Write-Log 'Veyon Master bereits vorhanden (wird beibehalten).'
+} else {
+    Write-Log 'Veyon Master war NICHT vorhanden - wird NICHT nachinstalliert.'
+}
+
+Backup-VeyonConfig
+
+$args = @(
+    'upgrade','--id',$PkgId,'-e',
+    '--source','winget',
+    '--silent','--disable-interactivity',
+    '--accept-source-agreements','--accept-package-agreements',
+    '--include-pinned'
+)
+if (-not $masterWasPresent) {
+    $args += @('--custom','/NoMaster')
+}
+
+Write-Log ("Ausfuehren: " + $wingetPath + ' ' + ($args -join ' '))
+$exitCode = Invoke-NativeCaptured -File $wingetPath -ArgList $args -OutputPath $WingLog
+Write-Log ("winget Exitcode: " + $exitCode)
+Write-WingetExitExplanation -ExitCode $exitCode
+
+$afterVer = Get-VeyonInstalledVersion
+if ($afterVer) {
+    Write-Log ("Version nach Update: " + $afterVer)
+} else {
+    Write-Log 'Version nach Update: unbekannt'
+}
+
+if ($exitCode -ne 0) {
+    Write-Log ("Ergebnis: UPDATE FEHLGESCHLAGEN (winget Exitcode " + $exitCode + ').')
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 20
+}
+
+if ($afterVer -and $afterVer -gt $beforeVer) {
+    Write-Log 'Ergebnis: UPDATE ERFOLGREICH.'
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 0
+}
+
+if ($afterVer -and $afterVer -eq $beforeVer) {
+    Write-Log 'Ergebnis: WinGet meldete Erfolg, die Veyon-Version blieb jedoch unveraendert.'
+    Write-Log '=== Ende ==='
+    Trim-LogIfOversize
+    exit 23
+}
+
+Write-Log 'Ergebnis: Version nach dem Update nicht ermittelbar.'
+Write-Log '=== Ende ==='
+Trim-LogIfOversize
+exit 24
