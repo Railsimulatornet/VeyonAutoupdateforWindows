@@ -1,0 +1,109 @@
+# Remove-Veyon-AutoUpdate.ps1
+# Copyright Roman Glos 12.07.2026 V1.4.4
+
+[CmdletBinding()]
+param([string]$TestHarnessConfig = '')
+
+$ErrorActionPreference = 'Stop'
+
+$TestHarness = $null
+if (-not [string]::IsNullOrWhiteSpace($TestHarnessConfig)) {
+    $TestHarnessConfig = [System.IO.Path]::GetFullPath($TestHarnessConfig.Trim().Trim('"'))
+    if (-not (Test-Path -LiteralPath $TestHarnessConfig -PathType Leaf)) {
+        throw "Test-Harness-Konfiguration wurde nicht gefunden: $TestHarnessConfig"
+    }
+    $TestHarness = Get-Content -LiteralPath $TestHarnessConfig -Raw -ErrorAction Stop | ConvertFrom-Json
+}
+function Get-TestHarnessValue {
+    param([string]$Name)
+    if ($null -eq $TestHarness) { return $null }
+    $property = $TestHarness.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+$harnessBase = Get-TestHarnessValue -Name 'base'
+$Base = if (-not [string]::IsNullOrWhiteSpace([string]$harnessBase)) {
+    [System.IO.Path]::GetFullPath([string]$harnessBase)
+} elseif (-not [string]::IsNullOrWhiteSpace($env:VEYON_UPDATER_BASE)) {
+    [System.IO.Path]::GetFullPath(([string]$env:VEYON_UPDATER_BASE).Trim().Trim('"'))
+} else {
+    'C:\ProgramData\Veyon\Update'
+}
+$MainScriptPath = Join-Path $Base 'Veyon-AutoUpdate.ps1'
+
+$harnessTaskName = Get-TestHarnessValue -Name 'taskName'
+$harnessHelperTaskName = Get-TestHarnessValue -Name 'helperTaskName'
+$TaskName = if (-not [string]::IsNullOrWhiteSpace([string]$harnessTaskName)) {
+    [string]$harnessTaskName
+} elseif ($env:VEYON_UPDATER_TASK_NAME) {
+    [string]$env:VEYON_UPDATER_TASK_NAME
+} else {
+    'Veyon AutoUpdate (winget)'
+}
+$HelperTaskName = if (-not [string]::IsNullOrWhiteSpace([string]$harnessHelperTaskName)) {
+    [string]$harnessHelperTaskName
+} elseif ($env:VEYON_UPDATER_HELPER_TASK_NAME) {
+    [string]$env:VEYON_UPDATER_HELPER_TASK_NAME
+} else {
+    'Veyon AutoUpdate Setup Helper'
+}
+
+function Test-IsAdministrator {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { return $false }
+}
+
+function Remove-TaskQuietly {
+    param([string]$Name)
+    try { Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+}
+
+function Invoke-SystemPinRemoval {
+    if (-not (Test-Path -LiteralPath $MainScriptPath -PathType Leaf)) { return }
+    $powerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -SkipSelfUpdate -RemovePinOnly' -f $MainScriptPath
+    if (-not [string]::IsNullOrWhiteSpace($TestHarnessConfig)) {
+        $arguments += (' -TestHarnessConfig "{0}"' -f $TestHarnessConfig)
+    }
+    $action = New-ScheduledTaskAction -Execute $powerShellExe -Argument $arguments
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+    $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+
+    Remove-TaskQuietly -Name $HelperTaskName
+    try {
+        Register-ScheduledTask -TaskName $HelperTaskName -InputObject $task -Force | Out-Null
+        Start-ScheduledTask -TaskName $HelperTaskName
+        $deadline = (Get-Date).AddMinutes(3)
+        do {
+            Start-Sleep -Milliseconds 500
+            $state = (Get-ScheduledTask -TaskName $HelperTaskName -ErrorAction Stop).State
+        } while ($state -eq 'Running' -and (Get-Date) -lt $deadline)
+    } finally {
+        Remove-TaskQuietly -Name $HelperTaskName
+    }
+}
+
+if (-not (Test-IsAdministrator)) {
+    throw 'Die Deinstallation muss mit Administratorrechten ausgefuehrt werden.'
+}
+
+Write-Host '[1/4] Veyon-Pin im SYSTEM-Kontext entfernen ...'
+try { Invoke-SystemPinRemoval } catch { Write-Warning ('Pin-Entfernung fehlgeschlagen: ' + $_.Exception.Message) }
+
+Write-Host '[2/4] Geplante Aufgaben entfernen ...'
+Remove-TaskQuietly -Name $HelperTaskName
+Remove-TaskQuietly -Name $TaskName
+
+Write-Host '[3/4] Dateien entfernen ...'
+if (Test-Path -LiteralPath $Base) {
+    Remove-Item -LiteralPath $Base -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Write-Host '[4/4] Fertig.'
+Write-Host 'Die Veyon-Auto-Update-Funktion wurde entfernt.' -ForegroundColor Green
+Write-Host 'Copyright Roman Glos 12.07.2026 V1.4.4 fuer Realschule Roth'
