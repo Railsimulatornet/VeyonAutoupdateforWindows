@@ -1,26 +1,34 @@
-# Nutzungsbedingungen (TERMS)
+# Lizenz- und Nutzungshinweise
 
-**Kurzfassung:** Du darfst das **unveränderte** Release-ZIP aus diesem Repository herunterladen und auf eigenen Windows-Systemen verwenden.  
-**Nicht** gestattet sind das **Verändern**, **Weiterverbreiten veränderter Fassungen**, das **Re-Hosting** der Inhalte sowie **kommerzielle Nutzung** ohne vorherige schriftliche Zustimmung.
+Dieses Projekt steht unter der **MIT-Lizenz**.
 
-## Erlaubt
-- Download des **unveränderten** Release-Pakets aus diesem Repository
-- Nutzung auf eigenen Geräten (privat oder im schulischen Umfeld)
-- Verlinken auf **dieses** Repository bzw. die offiziellen Releases
+Die verbindlichen Lizenzbedingungen befinden sich in der Datei [`LICENSE`](LICENSE).
 
-## Nicht erlaubt
-- Modifikation der Skripte/Dateien und Verbreitung veränderter Fassungen
-- Eigenständiges Veröffentlichen/Spiegeln (Re-Hosting) der Pakete/Inhalte
-- Verkauf, Vermietung, kommerzielle Nutzung oder Einbindung in kommerzielle Produkte
-- Entfernen oder Ändern von Copyright-/Hinweismarkierungen
+## Erlaubte Nutzung
 
-## Gewährleistung & Haftung
-Bereitgestellt **„wie besehen“** („as is“) **ohne** Garantie oder Gewährleistung. Nutzung auf eigene Gefahr.  
-Der Autor haftet nicht für direkte, indirekte, zufällige oder Folgeschäden, die aus der Nutzung entstehen.
+Die MIT-Lizenz erlaubt insbesondere:
+
+- private und kommerzielle Nutzung
+- Verwendung auf eigenen oder fremden Systemen
+- Änderung und Anpassung des Quellcodes
+- Weitergabe unveränderter oder veränderter Fassungen
+- Veröffentlichung und Einbindung in andere Projekte
+- Unterlizenzierung und Verkauf
+
+Dabei müssen der Copyright-Hinweis und der MIT-Lizenztext in Kopien oder wesentlichen Teilen der Software erhalten bleiben.
+
+## Gewährleistung und Haftung
+
+Die Software wird im Rahmen der MIT-Lizenz **„wie besehen“ ("as is")** ohne ausdrückliche oder stillschweigende Garantie bereitgestellt.
+
+Für Schäden oder sonstige Ansprüche, die aus der Nutzung der Software entstehen, wird im gesetzlich zulässigen Rahmen keine Haftung übernommen.
 
 ## Support
-Issues über den GitHub-Issue-Tracker sind willkommen (ohne Rechtsanspruch auf Behebung).
+
+Fehlerberichte und Verbesserungsvorschläge über den GitHub-Issue-Tracker sind willkommen. Ein Anspruch auf Support, Wartung oder Fehlerbehebung besteht nicht.
 
 ## Copyright
-Copyright © **Roman Glos**, 11.11.2025. Alle Rechte vorbehalten.
 
+Copyright © Roman Glos, 2025–2026.
+
+Maßgeblich für die Nutzung und Weitergabe dieses Projekts ist die Datei [`LICENSE`](LICENSE).
