@@ -136,7 +136,7 @@ echo Die automatische Aktualisierung für Veyon wurde eingerichtet.
 echo - Ausführung: Bei jedem Systemstart (ca. 2 Min. nach Start)
 echo - Logdatei  : C:\ProgramData\Veyon\Update\veyon_autoupdate.log
 echo.
-echo Copyright Roman Glos 24.01.2026 V1.1 für Realschule Roth
+echo Copyright Roman Glos 24.01.2026 V1.3 für Realschule Roth
 echo Dieses Fenster kann jetzt geschlossen werden.
 pause
 endlocal
