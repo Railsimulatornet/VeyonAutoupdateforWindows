@@ -1,0 +1,45 @@
+name: PowerShell Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '31 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parse:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Parse scripts with Windows PowerShell
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(git ls-files -- '*.ps1')
+          if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) {
+              throw 'No tracked PowerShell scripts found.'
+          }
+          foreach ($file in $files) {
+              $tokens = $null
+              $parseErrors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  (Join-Path $env:GITHUB_WORKSPACE $file),
+                  [ref]$tokens,
+                  [ref]$parseErrors
+              ) | Out-Null
+              if ($parseErrors.Count -gt 0) {
+                  $parseErrors | ForEach-Object { Write-Error $_.Message }
+                  throw "PowerShell parse failed: $file"
+              }
+              Write-Host "Parsed: $file"
+          }
