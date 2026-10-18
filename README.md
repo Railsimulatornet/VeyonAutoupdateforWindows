@@ -1,5 +1,7 @@
 # Veyon Auto-Update (WinGet) – Start bei Systemstart
 
+[![PowerShell](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/actions/workflows/powershell-validation.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/actions/workflows/powershell-validation.yml)
+
 Automatisiert Updates von **Veyon** über **WinGet** beim **Systemstart** – leise, robust und mit Sicherung der bestehenden Konfiguration. Ideal für Eltern-/Schülergeräte, wo Standardkonten ohne Adminrechte genutzt werden.
 
 > **Hinweis:** Dieses Repository stellt ein fertig nutzbares ZIP aus den Releases bereit. Es ändert **keine** Veyon-Einstellungen, aber übernimmt vorhandene Konfigurationen.
@@ -45,7 +47,7 @@ Wichtig: Es gibt zwei Installationswege
 - **Start über geplante Aufgabe (SYSTEM)**  
   Geplante Aufgabe läuft als **SYSTEM** mit **ca. 2 Minuten Verzögerung**.  
   Standard: **bei Systemstart**.  
-  Optional/automatisch: **bei Benutzeranmeldung**, falls **Windows Schnellstart (Hybrid Shutdown)** aktiv ist (damit der Trigger zuverlässig greift). :contentReference[oaicite:0]{index=0}
+  Optional/automatisch: **bei Benutzeranmeldung**, falls **Windows Schnellstart (Hybrid Shutdown)** aktiv ist (damit der Trigger zuverlässig greift).
 
 - **Deutsches Log + Auto-Trimming**  
   Log: `C:\ProgramData\Veyon\Update\veyon_autoupdate.log` (deutsches Datumsformat). Ab ~1 MB werden ältere Einträge abgeschnitten; der letzte Lauf bleibt erhalten.
@@ -64,7 +66,7 @@ Wichtig: Es gibt zwei Installationswege
 
 ## Installation (per EXE Datei) – für Eltern (empfohlen)
 
-1. In den Releases die Datei **`VeyonUpdater_vX_Y_Setup.exe`** herunterladen
+1. Im [aktuellen Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) die Setup-Datei herunterladen (für V1.3: `VeyonUpdater_v1.3_Setup.exe`)
 2. Datei starten (bei Bedarf: Rechtsklick, **Als Administrator ausführen**)
 3. Hinweis bestätigen, Setup entpackt und installiert automatisch
 4. Fertig: Beim nächsten Start prüft das System die Online Version und aktualisiert nur wenn nötig
@@ -73,7 +75,7 @@ Tipp: Nach der Installation kann man den Task in der Aufgabenplanung sehen (Name
 
 ## Installation (per ZIP Datei) – alternativ
 
-1. ZIP aus den Releases herunterladen
+1. ZIP aus dem [aktuellen Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) herunterladen
 2. Wichtig: ZIP **entpacken** (Rechtsklick → **Alle extrahieren**)
    Hintergrund: Aus einer geöffneten ZIP heraus blockiert Windows teils Schreib und Ausführrechte („Zugriff verweigert“)
 3. Als Administrator `Install-Veyon-AutoUpdate.cmd` starten  
@@ -143,7 +145,7 @@ Wenn WinGet fehlt/defekt ist, versucht das Skript (je nach Implementierung) die 
 Beim nächsten Start läuft die Prüfung erneut. Ist die Version noch alt, wird das Upgrade wieder ausgelöst. Mehrfache Aufrufe sind unkritisch.
 
 **Warum ggf. „Benutzeranmeldung“ statt „Systemstart“ als Trigger?**  
-Bei aktiviertem **Schnellstart** ist „Herunterfahren“ technisch eine Art Hybrid-Shutdown (Kernel-Session wird in eine Hibernation-Datei geschrieben). Dadurch kann ein „Einschalten“ eher einem Resume ähneln als einem klassischen Kaltstart – und Trigger-Verhalten kann sich unterscheiden. :contentReference[oaicite:1]{index=1}
+Bei aktiviertem **Schnellstart** ist „Herunterfahren“ technisch eine Art Hybrid-Shutdown (Kernel-Session wird in eine Hibernation-Datei geschrieben). Dadurch kann ein „Einschalten“ eher einem Resume ähneln als einem klassischen Kaltstart – und Trigger-Verhalten kann sich unterscheiden.
 
 ---
 
