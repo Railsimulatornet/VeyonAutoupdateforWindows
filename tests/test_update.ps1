@@ -1,5 +1,5 @@
-$ErrorActionPreference = 'Stop'
-$sourcePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'Veyon-AutoUpdate.ps1'
+﻿$ErrorActionPreference = 'Stop'
+$sourcePath = if ($env:VEYON_SOURCE) { $env:VEYON_SOURCE } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'Veyon-AutoUpdate.ps1' }
 $tokens = $null
 $errors = $null
 $tree = [System.Management.Automation.Language.Parser]::ParseFile($sourcePath, [ref]$tokens, [ref]$errors)
@@ -154,3 +154,5 @@ Test-Scenario 'missing post-upgrade version' {
     & $sourcePath -Testlauf
     Write-Host 'PASS: full dry-run entry point'
 }
+
+& (Join-Path $PSScriptRoot 'test_installer.ps1') -PackageRoot (Split-Path $sourcePath -Parent)

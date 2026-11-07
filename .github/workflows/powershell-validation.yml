@@ -9,6 +9,10 @@ on:
     - cron: '31 5 * * 1'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -47,3 +51,6 @@ jobs:
       - name: Test update decisions with simulated system calls
         shell: powershell
         run: ./tests/test_update.ps1
+
+      - name: Verify complete release packages and packaged-source regressions
+        run: python scripts/build_release.py --check --check-setup-launch
