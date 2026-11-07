@@ -42,11 +42,11 @@ Die Setup-Datei ist der einfache Installationsweg, zum Beispiel für Eltern- ode
 2. Entpacke sie vollständig über **Alle extrahieren**. Starte den Installer aus dem entpackten Ordner.
 3. Führe `Install-Veyon-AutoUpdate.cmd` als Administrator aus. Die CMD-Dateien und `Veyon-AutoUpdate.ps1` müssen im selben Ordner liegen.
 
-Der Installer kopiert das PowerShell-Skript nach `C:\ProgramData\Veyon\Update\`, richtet den Task ein und startet eine Versionsprüfung mit `-Testlauf`. Dieser Test führt kein Veyon-Upgrade und keinen Konfigurationsexport aus.
+Der Installer kopiert das PowerShell-Skript nach `C:\ProgramData\Veyon\Update\`, richtet den Task ein und startet `-Testlauf`. Im aktuellen Quellstand liest dieser nur die lokale Dateiversion und schreibt keine Dateien. Die Online-Abfrage entfällt, damit WinGet auch seinen Cache nicht verändert. Der Installer selbst installiert weiterhin den Task und das Skript.
 
 ### Verhalten und Einstellungen
 
-| Bereich | Verhalten von V1.3 |
+| Bereich | Verhalten des aktuellen Quellstands |
 |---|---|
 | Taskname | `Veyon AutoUpdate (winget)` |
 | Benutzerkonto | `SYSTEM` |
@@ -57,7 +57,7 @@ Der Installer kopiert das PowerShell-Skript nach `C:\ProgramData\Veyon\Update\`,
 | Veyon Master | Wenn vorher nicht vorhanden, wird `--custom /NoMaster` ergänzt |
 | Konfigurationssicherungen | Unter `config-backups`; bis zu drei JSON-Dateien und drei Registry-Dateien, getrennt rotiert |
 
-**Versions-Fallback in V1.3:** Kann das Skript weder die lokale noch die Online-Version ermitteln, versucht es trotzdem ein WinGet-Upgrade. Dieser Fallback erstellt vorher keinen Konfigurationsexport. Prüfe bei unbekannten Versionsangaben das Laufprotokoll.
+**Sicherer Abbruch:** Bei unbekannten oder uneindeutigen Versionen sowie fehlgeschlagener Konfigurationssicherung gibt es kein Upgrade. Die geprüfte Zielversion wird beim Upgrade fest angegeben. Diese Änderungen betreffen den Quellstand im Repository; das bestehende V1.3-Release bleibt unverändert.
 
 Das Skript legt keine eigenen Veyon-Einstellungen fest. Die gesicherten JSON- beziehungsweise Registry-Dateien stehen für eine manuelle Wiederherstellung zur Verfügung.
 
@@ -169,11 +169,11 @@ The setup executable provides the straightforward installation route, for exampl
 2. Fully extract it with **Extract All**. Start the installer from the extracted folder.
 3. Run `Install-Veyon-AutoUpdate.cmd` as administrator. The CMD files and `Veyon-AutoUpdate.ps1` must be in the same folder.
 
-The installer copies the PowerShell script to `C:\ProgramData\Veyon\Update\`, creates the task and starts a version check with `-Testlauf`. This test performs no Veyon upgrade or configuration export.
+The installer copies the PowerShell script to `C:\ProgramData\Veyon\Update\`, creates the task and starts `-Testlauf`. In the current source, this only reads the local file version and writes no files. The online query is skipped so WinGet cannot update its cache. The installer itself still installs the task and script.
 
 ### Behaviour and settings
 
-| Area | V1.3 behaviour |
+| Area | Current source behaviour |
 |---|---|
 | Task name | `Veyon AutoUpdate (winget)` |
 | Account | `SYSTEM` |
@@ -184,7 +184,7 @@ The installer copies the PowerShell script to `C:\ProgramData\Veyon\Update\`, cr
 | Veyon Master | Adds `--custom /NoMaster` if Master was not previously installed |
 | Configuration backups | In `config-backups`; up to three JSON files and three registry files, rotated separately |
 
-**Version fallback in V1.3:** If neither the installed nor the online version can be determined, the script still attempts a WinGet upgrade. This fallback does not create a configuration export beforehand. Check the runtime log when version information is unknown.
+**Safe abort:** Unknown or ambiguous versions and failed configuration backups prevent an upgrade. The upgrade explicitly pins the checked target version. These changes apply to the repository source; the existing V1.3 release remains unchanged.
 
 The script does not define its own Veyon settings. The saved JSON or registry files are available for manual recovery.
 

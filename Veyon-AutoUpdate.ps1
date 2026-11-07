@@ -11,18 +11,22 @@ $Log     = Join-Path $Base 'veyon_autoupdate.log'
 $WingLog = Join-Path $Base 'winget_last.log'
 $BkDir   = Join-Path $Base 'config-backups'
 
-New-Item -ItemType Directory -Force -Path $Base,$BkDir | Out-Null
+if (-not $Testlauf) {
+    New-Item -ItemType Directory -Force -Path $Base,$BkDir | Out-Null
+}
 
 # Deutsches Datumsformat
 $de = [System.Globalization.CultureInfo]::GetCultureInfo('de-DE')
 function Write-Log {
     param([string]$Text)
+    if ($Testlauf) { Write-Host $Text; return }
     $stamp = (Get-Date).ToString('dd.MM.yyyy HH:mm:ss', $de)
     Add-Content -Path $Log -Value "[$stamp] $Text"
 }
 
 # Logfile kürzen, wenn > 1 MB
 function Trim-LogIfOversize {
+    if ($Testlauf) { return }
     $maxBytes = 1MB
     try {
         if (Test-Path $Log) {
@@ -116,32 +120,51 @@ function Rotate-Backups {
 }
 
 function Export-RegistryBackup {
-    $ts = (Get-Date -f 'yyyyMMdd-HHmmss')
+    $ts = (Get-Date -f 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N')
     $regBk = Join-Path $BkDir ("registry-backup-{0}.reg" -f $ts)
+    $backupSucceeded = $false
     try {
         $ec2 = Invoke-Proc -File 'reg.exe' -ArgList @('export','HKLM\Software\Veyon Solutions',"$regBk","/y","/reg:64")
-        if ($ec2 -eq 0 -and (Test-Path $regBk -PathType Leaf)) {
+        if ($ec2 -eq 0 -and (Test-Path $regBk -PathType Leaf) -and (Get-Item $regBk).Length -gt 0) {
+            $registryText = Get-Content -LiteralPath $regBk -Raw
+            if ($registryText -notmatch '(?m)^Windows Registry Editor Version 5\.00' -or
+                $registryText -notmatch '(?im)^\[HKEY_LOCAL_MACHINE\\SOFTWARE\\Veyon Solutions(?:\\[^\r\n\]]*)?\]') {
+                Write-Log 'Registry-Backup ist ungueltig.'
+                return $false
+            }
             Write-Log ("Konfigurations-Backup (Registry) erstellt: " + $regBk)
+            $backupSucceeded = $true
+            Rotate-Backups
+            return $true
         } else {
             Write-Log ("Konfigurations-Backup (Registry) Exitcode: " + $ec2)
         }
     } catch {
         Write-Log ("Konfigurations-Backup (Registry) fehlgeschlagen: " + $_.Exception.Message)
+    } finally {
+        if (-not $backupSucceeded -and (Test-Path -LiteralPath $regBk)) {
+            Remove-Item -LiteralPath $regBk -Force
+        }
     }
-    Rotate-Backups
+    return $false
 }
 
 function Backup-VeyonConfig {
-    $ts = (Get-Date -f 'yyyyMMdd-HHmmss')
+    $ts = (Get-Date -f 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N')
+    $bk = $null
     try {
         $cli = Get-VeyonCliPath
         if ($null -ne $cli) {
             $bk = Join-Path $BkDir ("config-{0}.json" -f $ts)
             $ec = Invoke-Proc -File $cli -ArgList @('config','export',"$bk")
-            if ($ec -eq 0 -and (Test-Path $bk -PathType Leaf)) {
+            if ($ec -eq 0 -and (Test-Path $bk -PathType Leaf) -and (Get-Item $bk).Length -gt 0) {
+                $configuration = Get-Content -LiteralPath $bk -Raw | ConvertFrom-Json -ErrorAction Stop
+                if ($null -eq $configuration -or $configuration -isnot [pscustomobject]) {
+                    throw 'Konfigurationsexport ist kein JSON-Objekt.'
+                }
                 Write-Log ("Konfigurations-Backup (CLI) erstellt: " + $bk)
                 Rotate-Backups
-                return
+                return $true
             } else {
                 Write-Log ("Konfigurations-Backup (CLI) Exitcode: " + $ec + " – wechsle auf Registry-Backup")
             }
@@ -151,25 +174,31 @@ function Backup-VeyonConfig {
     } catch {
         Write-Log ("Konfigurations-Backup (CLI) fehlgeschlagen: " + $_.Exception.Message + " – wechsle auf Registry-Backup")
     }
-    Export-RegistryBackup
+    if ($bk -and (Test-Path -LiteralPath $bk)) {
+        Remove-Item -LiteralPath $bk -Force
+    }
+    return (Export-RegistryBackup)
 }
 
 # ---- Versionsermittlung ----
 function Parse-InstalledSemVer {
     param([string]$Text)
     if (-not $Text) { return $null }
-    if ($Text -match '(\d+(?:\.\d+){1,3})') {
+    if ($Text -match '^\s*(?:Veyon\s+)?v?(\d+(?:\.\d+){1,3})\s*$') {
         try { return [version]$matches[1] } catch { return $null }
     }
     return $null
 }
 
 function Get-VeyonInstalledVersion {
+    param([switch]$FilesOnly)
     try {
-        $cli = Get-VeyonCliPath
+        $cli = $null
+        if (-not $FilesOnly) { $cli = Get-VeyonCliPath }
         if ($cli) {
             $t = (& "$cli" --version 2>&1) -join "`n"
-            $v = Parse-InstalledSemVer $t
+            $v = $null
+            if ($LASTEXITCODE -eq 0) { $v = Parse-InstalledSemVer $t }
             if ($v) { return $v }
         }
     } catch {}
@@ -207,11 +236,14 @@ function Get-OnlineVersionStrict {
     param([string]$WingetExe)
     try {
         $out = (& "$WingetExe" show --id $PkgId -e --source winget --disable-interactivity 2>&1) -split "`r?`n"
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $versions = @()
         foreach ($line in $out) {
             if ($line -match '^\s*Version\s*:\s*([0-9]+(?:\.[0-9]+){1,3})\s*$') {
-                try { return [version]$matches[1] } catch { return $null }
+                try { $versions += [version]$matches[1] } catch { return $null }
             }
         }
+        if ($versions.Count -eq 1) { return $versions[0] }
         return $null
     } catch {
         return $null
@@ -219,14 +251,22 @@ function Get-OnlineVersionStrict {
 }
 
 # ---------------- Hauptablauf ----------------
+function Invoke-VeyonUpdate {
 Write-Log "=== Start ==="
+
+if ($Testlauf) {
+    $installed = Get-VeyonInstalledVersion -FilesOnly
+    Write-Log ("TESTLAUF: Lokale Dateiversion: " + $installed)
+    Write-Log 'TESTLAUF: Keine Dateien, Quellen oder Installation werden geaendert. Die Online-Abfrage wird ausgelassen, weil WinGet dabei seinen Cache aktualisieren kann.'
+    return
+}
 
 $wingetPath = Resolve-WingetPath
 if ($null -eq $wingetPath) {
     Write-Log "winget im aktuellen Kontext nicht verfügbar. Abbruch."
     Write-Log "=== Ende ==="
     Trim-LogIfOversize
-    exit 0
+    return
 } else {
     try {
         $v = & "$wingetPath" --version 2>$null
@@ -241,22 +281,6 @@ if ($beforeVer) { Write-Log ("Installierte Version: " + $beforeVer) } else { Wri
 
 # Quellen bereinigen
 Ensure-WingetSources -WingetExe $wingetPath
-
-# ---- Testlauf: nur Online-Version prüfen, *keine* Installation/Backups ----
-if ($Testlauf) {
-    $online = Get-OnlineVersionStrict -WingetExe $wingetPath
-    if ($online) {
-        Write-Log ("Online verfügbare Version laut winget: " + $online)
-        if ($beforeVer -and ($online -gt $beforeVer)) {
-            Write-Log "TESTLAUF: Update wäre verfügbar – keine Installation im Testmodus."
-        } elseif ($beforeVer -and ($online -le $beforeVer)) {
-            Write-Log "TESTLAUF: Bereits aktuell – keine Installation nötig."
-        }
-    }
-    Write-Log "=== Ende (Testlauf) ==="
-    Trim-LogIfOversize
-    exit 0
-}
 
 $masterWasPresent = Test-MasterPresent
 if ($masterWasPresent) { Write-Log "Veyon Master bereits vorhanden (wird beibehalten)." }
@@ -274,17 +298,20 @@ if ($onlineVer -and $beforeVer -and ($onlineVer -gt $beforeVer)) {
 } elseif ($onlineVer -and $beforeVer -and ($onlineVer -le $beforeVer)) {
     $doBackup = $false
     $doUpgrade = $false
-} elseif (-not $onlineVer) {
-    if (-not $beforeVer) { $doUpgrade = $true }
+} elseif (-not $onlineVer -or -not $beforeVer) {
+    Write-Log 'Version nicht eindeutig ermittelbar. Kein Upgrade.'
 }
 
 if ($doBackup) {
-    Backup-VeyonConfig
+    if (-not (Backup-VeyonConfig)) {
+        throw 'Konfigurationssicherung fehlgeschlagen. Kein Upgrade.'
+    }
 }
 
 if ($doUpgrade) {
     $args = @(
         'upgrade','--id',$PkgId,'-e',
+        '--version',("{0}" -f $onlineVer),'--source','winget',
         '--silent','--disable-interactivity',
         '--accept-source-agreements','--accept-package-agreements',
         '--log',"$WingLog"
@@ -295,12 +322,16 @@ if ($doUpgrade) {
     Write-Log ("Ausführen: " + $wingetPath + " " + ($args -join ' '))
     $ec = Invoke-Proc -File $wingetPath -ArgList $args
     Write-Log ("winget Exitcode: " + $ec)
+    if ($ec -ne 0) { throw "WinGet-Upgrade fehlgeschlagen (Exitcode $ec)." }
 } else {
     Write-Log "Kein Update notwendig – Skip (kein Backup, kein Upgrade)."
 }
 
 $afterVer = Get-VeyonInstalledVersion
 if ($afterVer) { Write-Log ("Version nach Update: " + $afterVer) } else { Write-Log "Version nach Update: unbekannt" }
+if ($doUpgrade -and (-not $afterVer -or $afterVer -lt $onlineVer)) {
+    throw 'Die erwartete Version wurde nach dem Upgrade nicht bestaetigt.'
+}
 
 if ($beforeVer -and $afterVer) {
     if ($afterVer -gt $beforeVer) { Write-Log "Ergebnis: UPDATE ERFOLGREICH." }
@@ -314,3 +345,6 @@ if ($beforeVer -and $afterVer) {
 
 Write-Log "=== Ende ==="
 Trim-LogIfOversize
+}
+
+Invoke-VeyonUpdate
