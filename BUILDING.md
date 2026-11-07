@@ -22,3 +22,7 @@ Publishing is a separate manual step after the final commit passes its checks. D
 Windows und 7-Zip werden für den Setup-Bau benötigt. Das unveränderte SFX-Modul stammt aus dem offiziellen LZMA SDK 26.05; sein SHA-256-Wert ist fest hinterlegt. Herkunft und Lizenz stehen in `packaging/`. Der Build prüft die EXE durch Entpacken mit 7-Zip, ohne den Installer auszuführen. ZIP und EXE müssen exakt dieselben Nutzdateien enthalten.
 
 Windows and 7-Zip are required for the setup build. The unchanged SFX module comes from the official LZMA SDK 26.05 and is checksum-pinned. Provenance and license are in `packaging/`. Verification extracts the EXE with 7-Zip without running the installer. ZIP and EXE must contain exactly the same payload files.
+
+Die Windows-CI prüft zusätzlich `python scripts/build_release.py --check --check-setup-launch`. Dabei startet das SFX-Modul ausschließlich ein harmloses Ersatzskript und muss seinen Entpackordner danach entfernen. Der echte Installer wird nicht ausgeführt. Dieser Starttest benötigt einen Windows-Testrechner mit passenden Rechten für den unbeaufsichtigten EXE-Start.
+
+Windows CI additionally runs `python scripts/build_release.py --check --check-setup-launch`. The SFX module runs only a harmless stand-in and must remove its extraction directory afterwards. The real installer is not executed. This launch test requires a Windows test runner with suitable rights for unattended EXE execution.
