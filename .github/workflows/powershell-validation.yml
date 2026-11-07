@@ -43,3 +43,7 @@ jobs:
               }
               Write-Host "Parsed: $file"
           }
+
+      - name: Test update decisions with simulated system calls
+        shell: powershell
+        run: ./tests/test_update.ps1
