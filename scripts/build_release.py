@@ -87,7 +87,7 @@ def build(output, files):
                            stdout=subprocess.DEVNULL)
             config = (';!@Install@!UTF-8!\nTitle="Veyon Updater v' + CONFIG['version'] +
                       '"\nBeginPrompt="Veyon Updater installieren?"\n'
-                      'Progress="no"\nRunProgram="cmd.exe /d /c Install-Veyon-AutoUpdate.cmd"\n;!@InstallEnd@!\n').encode()
+                      'Progress="no"\nDirectory=""\nRunProgram="cmd.exe /d /c Install-Veyon-AutoUpdate.cmd"\n;!@InstallEnd@!\n').encode()
             setup.write_bytes(stub + config + compressed.read_bytes())
             extracted = directory / 'verify'
             subprocess.run([seven_zip(), 'x', '-y', '-o' + str(extracted), str(setup.resolve())],
