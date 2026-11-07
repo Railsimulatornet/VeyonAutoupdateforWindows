@@ -53,4 +53,4 @@ jobs:
         run: ./tests/test_update.ps1
 
       - name: Verify complete release packages and packaged-source regressions
-        run: python scripts/build_release.py --check
+        run: python scripts/build_release.py --check --check-setup-launch
