@@ -48,6 +48,7 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
         Assert-True (($upgrades[0] -match '/NoMaster') -eq (-not $masterPresent)) "${Name}: must preserve existing installation components"
     }
     if ($Testlauf) { Assert-True ($script:Calls.Count -eq 0) 'Dry run invoked a modifying command' }
+    if (-not $installedVersion) { Assert-True ($script:Calls.Count -eq 0) 'Unknown installation changed sources or configuration' }
     Write-Host "PASS: $Name"
 }
 
@@ -61,6 +62,7 @@ Test-Scenario 'unknown online version' { $onlineVersion = $null } $false
 Test-Scenario 'both versions unknown' { $installedVersion = $null; $onlineVersion = $null } $false
 Test-Scenario 'backup refused' { function Backup-VeyonConfig { return $false } } $false $true
 Test-Scenario 'backup exception' { function Backup-VeyonConfig { throw 'simulated backup failure' } } $false $true
+Test-Scenario 'source update failed' { function Ensure-WingetSources { param($WingetExe); throw 'simulated source failure' } } $false $true
 Test-Scenario 'upgrade failed' {
     function Invoke-Proc { param($File, $ArgList); $script:Calls.Add(($ArgList -join ' ')); return 1 }
 } $true $true
@@ -86,6 +88,13 @@ Test-Scenario 'missing post-upgrade version' {
     Assert-True ($null -eq (Get-OnlineVersionStrict -WingetExe winget-double)) 'Conflicting versions accepted'
     function winget-double { $global:LASTEXITCODE = 0; 'Version: 4.10.0' }
     Assert-True ((Get-OnlineVersionStrict -WingetExe winget-double) -eq [version]'4.10.0') 'Valid online version rejected'
+    function Write-Log { param($Text) }
+    $script:SourceCalls = [System.Collections.Generic.List[string]]::new()
+    function Invoke-Proc { param($File, $ArgList); $script:SourceCalls.Add(($ArgList -join ' ')); return 1 }
+    $failed = $false
+    try { Ensure-WingetSources -WingetExe simulated-winget } catch { $failed = $true }
+    Assert-True $failed 'Failed source update did not abort'
+    Assert-True ($script:SourceCalls.Count -eq 1 -and $script:SourceCalls[0] -eq 'source update') 'Unexpected source reset'
     Write-Host 'PASS: strict version parsing'
 }
 

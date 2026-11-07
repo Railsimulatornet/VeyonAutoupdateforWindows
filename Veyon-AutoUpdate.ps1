@@ -222,11 +222,7 @@ function Ensure-WingetSources {
     Write-Log "winget: Quellen prüfen/aktualisieren ..."
     $ec = Invoke-Proc -File $WingetExe -ArgList @('source','update')
     if ($ec -ne 0) {
-        Write-Log ("winget source update Exitcode: " + $ec + " → versuche Reset")
-        $ec2 = Invoke-Proc -File $WingetExe -ArgList @('source','reset','--force')
-        Write-Log ("winget source reset --force Exitcode: " + $ec2)
-        $ec3 = Invoke-Proc -File $WingetExe -ArgList @('source','update')
-        Write-Log ("winget source update (nach Reset) Exitcode: " + $ec3)
+        throw "WinGet-Quellen konnten nicht aktualisiert werden (Exitcode $ec). Kein automatischer Quellen-Reset."
     } else {
         Write-Log "winget source update: OK"
     }
@@ -278,6 +274,10 @@ if ($null -eq $wingetPath) {
 
 $beforeVer = Get-VeyonInstalledVersion
 if ($beforeVer) { Write-Log ("Installierte Version: " + $beforeVer) } else { Write-Log "Installierte Version: unbekannt" }
+if (-not $beforeVer) {
+    Write-Log 'Installierte Version unbekannt. Kein Upgrade und keine Quellenaenderung.'
+    return
+}
 
 # Quellen bereinigen
 Ensure-WingetSources -WingetExe $wingetPath
