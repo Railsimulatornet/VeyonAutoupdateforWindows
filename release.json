@@ -1,0 +1,25 @@
+{
+  "version": "1.4",
+  "tag": "1.4",
+  "archive": "VeyonUpdater_v1.4.zip",
+  "files": [
+    "Install-Veyon-AutoUpdate.cmd",
+    "Remove-Veyon-AutoUpdate.cmd",
+    "Veyon-AutoUpdate.ps1",
+    "README.md",
+    "LICENSE",
+    "packaging/LZMA-SDK.txt",
+    "CHANGELOG.md"
+  ],
+  "version_markers": {
+    "Install-Veyon-AutoUpdate.cmd": "V{version}",
+    "Remove-Veyon-AutoUpdate.cmd": "V{version}",
+    "Veyon-AutoUpdate.ps1": "V{version}",
+    "README.md": "Version: **{version}**"
+  },
+  "test_sources": {
+    "VEYON_SOURCE": "Veyon-AutoUpdate.ps1"
+  },
+  "setup": "VeyonUpdater_v1.4_Setup.exe",
+  "sfx_sha256": "3a335e4338ebb8a8cff7b81aaa35decc148845e2ce144bfaf680b09cd647cb8c"
+}

@@ -1,5 +1,7 @@
 # Veyon Auto-Update (WinGet)
 
+Version: **1.4**
+
 [![PowerShell](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/actions/workflows/powershell-validation.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/actions/workflows/powershell-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -9,7 +11,7 @@
 
 Automatische Veyon-Updates über **WinGet** auf Windows-Geräten. Der Installer richtet eine geplante Aufgabe als **SYSTEM** ein. Sie startet mit etwa zwei Minuten Verzögerung beim Systemstart oder, bei aktiviertem Windows-Schnellstart, bei der Benutzeranmeldung.
 
-Diese Anleitung beschreibt den veröffentlichten Stand **V1.3**. Für die Einrichtung werden Administratorrechte benötigt; die späteren automatischen Läufe benötigen keine Administratoranmeldung des Benutzers.
+Diese Anleitung beschreibt den veröffentlichten Stand **V1.4**. Für die Einrichtung werden Administratorrechte benötigt; die späteren automatischen Läufe benötigen keine Administratoranmeldung des Benutzers.
 
 ### Funktionen
 
@@ -17,7 +19,7 @@ Diese Anleitung beschreibt den veröffentlichten Stand **V1.3**. Für die Einric
 - Bei ermittelbaren Versionsnummern wird nur aktualisiert, wenn die Online-Version neuer ist als die installierte Version.
 - Vor einem so erkannten Update wird die Veyon-Konfiguration gesichert: zunächst per CLI als JSON, bei Fehlschlag als Registry-Export.
 - Ein zuvor nicht vorhandener Veyon Master wird durch den Installationsschalter `/NoMaster` beim Upgrade ausgelassen.
-- Geplante Aufgabe mit etwa zwei Minuten Verzögerung; V1.3 erlaubt den Task auch im Akkubetrieb.
+- Geplante Aufgabe mit etwa zwei Minuten Verzögerung; V1.4 erlaubt den Task auch im Akkubetrieb.
 - Deutsches Laufprotokoll, WinGet-Log und automatische Rotation der Konfigurationssicherungen.
 
 ### Voraussetzungen
@@ -29,7 +31,7 @@ Diese Anleitung beschreibt den veröffentlichten Stand **V1.3**. Für die Einric
 
 ### Schnellstart: Setup-Datei
 
-1. Öffne das [aktuelle Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) und lade die Setup-Datei herunter. Für V1.3 heißt sie **`VeyonUpdater_v1.3_Setup.exe`**.
+1. Öffne das [aktuelle Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) und lade die Setup-Datei herunter. Für V1.4 heißt sie **`VeyonUpdater_v1.4_Setup.exe`**.
 2. Starte die Datei und bestätige die Administratorabfrage. Falls erforderlich, verwende **Als Administrator ausführen**.
 3. Folge dem Setup. Es entpackt die Dateien und richtet den Updater ein.
 4. Prüfe danach in der Windows-Aufgabenplanung die Aufgabe **`Veyon AutoUpdate (winget)`** und das Log unter `C:\ProgramData\Veyon\Update\`.
@@ -38,7 +40,7 @@ Die Setup-Datei ist der einfache Installationsweg, zum Beispiel für Eltern- ode
 
 #### Alternative: ZIP-Paket
 
-1. Lade die ZIP aus dem [aktuellen Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest), für V1.3 **`VeyonUpdater_v1.3.zip`**.
+1. Lade die ZIP aus dem [aktuellen Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest), für V1.4 **`VeyonUpdater_v1.4.zip`**.
 2. Entpacke sie vollständig über **Alle extrahieren**. Starte den Installer aus dem entpackten Ordner.
 3. Führe `Install-Veyon-AutoUpdate.cmd` als Administrator aus. Die CMD-Dateien und `Veyon-AutoUpdate.ps1` müssen im selben Ordner liegen.
 
@@ -57,11 +59,15 @@ Der Installer kopiert das PowerShell-Skript nach `C:\ProgramData\Veyon\Update\`,
 | Veyon Master | Wenn vorher nicht vorhanden, wird `--custom /NoMaster` ergänzt |
 | Konfigurationssicherungen | Unter `config-backups`; bis zu drei JSON-Dateien und drei Registry-Dateien, getrennt rotiert |
 
-**Sicherer Abbruch:** Bei unbekannten oder uneindeutigen Versionen sowie fehlgeschlagener Konfigurationssicherung gibt es kein Upgrade. Die geprüfte Zielversion wird beim Upgrade fest angegeben. Diese Änderungen betreffen den Quellstand im Repository; das bestehende V1.3-Release bleibt unverändert.
+**Sicherer Abbruch:** Bei unbekannten oder uneindeutigen Versionen sowie fehlgeschlagener Konfigurationssicherung gibt es kein Upgrade. Die geprüfte Zielversion wird beim Upgrade fest angegeben. ZIP und Setup enthalten dieselben geprüften Skripte.
 
 Das Skript legt keine eigenen Veyon-Einstellungen fest. Die gesicherten JSON- beziehungsweise Registry-Dateien stehen für eine manuelle Wiederherstellung zur Verfügung.
 
-#### Windows-Schnellstart
+#### Updater aktualisieren
+
+Warte einen laufenden Task ab. Sichere das bisherige Skript und `config-backups`, installiere dann das neue Paket über den bestehenden Updater. Nicht vorher deinstallieren: Das Entfernungsskript löscht auch dessen Sicherungsordner. Prüfe danach die Aufgabe und `-Testlauf`. Die Veyon-Konfiguration wird dabei nicht automatisch wiederhergestellt; JSON- und Registry-Sicherungen sind für einen gesonderten, kontrollierten Restore gedacht.
+
+### Windows-Schnellstart
 
 Der Installer prüft `HiberbootEnabled`. Bei aktiviertem Schnellstart wählt er **Benutzeranmeldung**, sonst **Systemstart**. So wird der automatische Lauf auch für die im Installer berücksichtigte Hybrid-Startkonfiguration eingerichtet. Den tatsächlich gewählten Trigger siehst du in der Aufgabenplanung.
 
@@ -136,7 +142,7 @@ Die Bilder zeigen die deutsche Windows-Oberfläche.
 
 Automatic Veyon updates through **WinGet** on Windows devices. The installer creates a scheduled task running as **SYSTEM**. It starts about two minutes after system startup or, when Windows Fast Startup is enabled, after user logon.
 
-This guide describes the published **V1.3** version. Setup requires administrator privileges; subsequent automatic runs do not require the user to sign in as an administrator.
+This guide describes the published **V1.4** version. Setup requires administrator privileges; subsequent automatic runs do not require the user to sign in as an administrator.
 
 ### Features
 
@@ -144,7 +150,7 @@ This guide describes the published **V1.3** version. Setup requires administrato
 - When both version numbers can be determined, an upgrade runs only if the online version is newer than the installed version.
 - Before such a detected update, the Veyon configuration is backed up: first as JSON through the CLI, with a registry export as fallback.
 - If Veyon Master was not installed, the `/NoMaster` installer switch omits it during the upgrade.
-- Scheduled task with about two minutes of delay; V1.3 also permits the task to run on battery power.
+- Scheduled task with about two minutes of delay; V1.4 also permits the task to run on battery power.
 - German runtime logging, a WinGet log and automatic rotation of configuration backups.
 
 ### Requirements
@@ -156,7 +162,7 @@ This guide describes the published **V1.3** version. Setup requires administrato
 
 ### Quick start: setup executable
 
-1. Open the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) and download the setup executable. For V1.3, it is named **`VeyonUpdater_v1.3_Setup.exe`**.
+1. Open the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) and download the setup executable. For V1.4, it is named **`VeyonUpdater_v1.4_Setup.exe`**.
 2. Run the file and accept the administrator prompt. Use **Run as administrator** if needed.
 3. Follow the setup. It extracts the files and installs the updater.
 4. Check the **`Veyon AutoUpdate (winget)`** task in Windows Task Scheduler and the log under `C:\ProgramData\Veyon\Update\`.
@@ -165,7 +171,7 @@ The setup executable provides the straightforward installation route, for exampl
 
 #### Alternative: ZIP package
 
-1. Download the ZIP from the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest); for V1.3, use **`VeyonUpdater_v1.3.zip`**.
+1. Download the ZIP from the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest); for V1.4, use **`VeyonUpdater_v1.4.zip`**.
 2. Fully extract it with **Extract All**. Start the installer from the extracted folder.
 3. Run `Install-Veyon-AutoUpdate.cmd` as administrator. The CMD files and `Veyon-AutoUpdate.ps1` must be in the same folder.
 
@@ -184,7 +190,7 @@ The installer copies the PowerShell script to `C:\ProgramData\Veyon\Update\`, cr
 | Veyon Master | Adds `--custom /NoMaster` if Master was not previously installed |
 | Configuration backups | In `config-backups`; up to three JSON files and three registry files, rotated separately |
 
-**Safe abort:** Unknown or ambiguous versions and failed configuration backups prevent an upgrade. The upgrade explicitly pins the checked target version. These changes apply to the repository source; the existing V1.3 release remains unchanged.
+**Safe abort:** Unknown or ambiguous versions and failed configuration backups prevent an upgrade. The upgrade explicitly pins the checked target version. The ZIP and setup contain the same verified scripts.
 
 The script does not define its own Veyon settings. The saved JSON or registry files are available for manual recovery.
 
@@ -258,3 +264,11 @@ These images show the German Windows interface.
 ### License and usage
 
 [MIT License](LICENSE), with additional [usage notes](TERMS.md). Use at your own risk and maintain current backups. Roman Glos / Railsimulatornet.
+
+### Updating the updater
+
+Wait for any running task. Back up the old script and `config-backups`, then install the new package over the existing updater. Do not uninstall first: the removal script also deletes its backup directory. Check the task and `-Testlauf` afterwards. Configuration recovery from JSON or registry exports is a separate, controlled restore.
+
+## Paketprüfung / Package verification
+
+[BUILDING.md](BUILDING.md) beschreibt den geprüften Paketbau. / See [BUILDING.md](BUILDING.md) for package build and verification.

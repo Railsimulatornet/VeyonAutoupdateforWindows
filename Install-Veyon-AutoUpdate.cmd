@@ -1,6 +1,6 @@
 @echo off
 :: Veyon Auto-Update Einrichtung (Start bei Systemstart)
-:: Copyright Roman Glos 30.01.2026 V1.3
+:: Copyright Roman Glos 30.01.2026 V1.4
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 title Veyon Auto-Update Einrichtung (Start bei Systemstart)
@@ -21,7 +21,7 @@ if not errorlevel 1 (
     "  Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force;" ^
     "  $cmd = Get-ChildItem -Path $dest -Recurse -Filter 'Install-Veyon-AutoUpdate.cmd' -ErrorAction SilentlyContinue | Select-Object -First 1;" ^
     "  if($cmd){" ^
-    "    Start-Process -FilePath $cmd.FullName -Verb RunAs" ^
+    "    Start-Process -FilePath $cmd.FullName -Verb RunAs -Wait" ^
     "  } else {" ^
     "    Write-Host 'FEHLER: Install-Veyon-AutoUpdate.cmd wurde nach dem Entpacken nicht gefunden.' -ForegroundColor Red;" ^
     "    Write-Host ('ZIP: ' + $zip);" ^
@@ -47,7 +47,7 @@ net session >nul 2>&1
 if %errorlevel% neq 0 (
   echo.
   echo Administratorrechte werden angefordert ...
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs -Wait"
   exit /b
 )
 
@@ -64,6 +64,11 @@ if not exist "%DST_DIR%" mkdir "%DST_DIR%"
 echo [2/4] PowerShell-Skript kopieren ...
 if exist "%SRC_DIR%%PS_FILE%" (
   copy /Y "%SRC_DIR%%PS_FILE%" "%DST_PS%" >nul
+  if errorlevel 1 (
+    echo [FEHLER] Skript konnte nicht kopiert werden. Vorhandener Task bleibt erhalten.
+    pause
+    exit /b 2
+  )
 ) else (
   echo [FEHLER] "%PS_FILE%" nicht im gleichen Ordner wie dieses Installationsprogramm gefunden.
   echo Vorgang abgebrochen.
@@ -88,7 +93,7 @@ if /I "%HIBERBOOT%"=="0x1" (
 )
 
 :: Bei drüberinstallieren: vorhandenen Task entfernen
-schtasks /Delete /TN "%TASK_NAME%" /F >nul 2>&1
+:: Bestehenden Task erst mit erfolgreichem /Create /F ersetzen.
 
 :: Task neu anlegen
 schtasks /Create /TN "%TASK_NAME%" /SC %SC% /DELAY 0002:00 /RU "SYSTEM" /RL HIGHEST ^
@@ -119,15 +124,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "  $xml = $xml -replace '<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>', '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>';" ^
   "  $tmp = Join-Path $env:TEMP 'VeyonAutoUpdate_Task.xml';" ^
   "  $xml | Out-File -FilePath $tmp -Encoding Unicode -Force;" ^
-  "  schtasks /Create /TN $tn /XML $tmp /F | Out-Null;" ^
+  "  try { schtasks /Create /TN $tn /XML $tmp /F | Out-Null } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue };" ^
   "}"
 
 echo Trigger: %SC_TEXT%
 
-echo [4/4] Testlauf jetzt starten (nur Online-Prüfung, ohne Installation/Backups) ...
+echo [4/4] Testlauf jetzt starten (nur lokale Dateiversion, keine Online-Abfrage) ...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DST_PS%" -Testlauf
 if errorlevel 1 (
-  echo Hinweis: Der Testlauf meldete einen Fehler. Details siehe Logdatei unten.
+  echo Hinweis: Der Testlauf meldete einen Fehler. Details siehe Ausgabe oben.
 )
 
 echo.
@@ -136,7 +141,7 @@ echo Die automatische Aktualisierung für Veyon wurde eingerichtet.
 echo - Ausführung: Bei jedem Systemstart (ca. 2 Min. nach Start)
 echo - Logdatei  : C:\ProgramData\Veyon\Update\veyon_autoupdate.log
 echo.
-echo Copyright Roman Glos 24.01.2026 V1.3 für Realschule Roth
+echo Copyright Roman Glos 24.01.2026 V1.4 für Realschule Roth
 echo Dieses Fenster kann jetzt geschlossen werden.
 pause
 endlocal
