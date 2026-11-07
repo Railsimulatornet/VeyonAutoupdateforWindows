@@ -172,7 +172,7 @@ function Backup-VeyonConfig {
             Write-Log "veyon-cli nicht gefunden – wechsle auf Registry-Backup"
         }
     } catch {
-        Write-Log ("Konfigurations-Backup (CLI) fehlgeschlagen: " + $_.Exception.Message + " – wechsle auf Registry-Backup")
+        Write-Log 'Konfigurations-Backup (CLI) fehlgeschlagen – wechsle auf Registry-Backup.'
     }
     if ($bk -and (Test-Path -LiteralPath $bk)) {
         Remove-Item -LiteralPath $bk -Force
