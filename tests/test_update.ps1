@@ -24,6 +24,7 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
     $script:Calls = [System.Collections.Generic.List[string]]::new()
     $script:VersionQueries = 0
     $script:Maintenance = 0
+    $script:TrackedUpgrade = $false
     function Write-Log { param($Text) }
     function Trim-LogIfOversize { $script:Maintenance++ }
     function Rotate-Backups { $script:Maintenance++ }
@@ -39,7 +40,7 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
     function Ensure-WingetSources { param($WingetExe); $script:Calls.Add('sources') }
     function Test-MasterPresent { return $masterPresent }
     function Backup-VeyonConfig { $script:Calls.Add('backup'); return $true }
-    function Invoke-Proc { param($File, $ArgList); $script:Calls.Add(($ArgList -join ' ')); return 0 }
+    function Invoke-Proc { param($File, $ArgList, [switch]$TrackMutation); $script:Calls.Add(($ArgList -join ' ')); $script:TrackedUpgrade = [bool]$TrackMutation; return 0 }
     . $Setup
     $failed = $false
     try { Invoke-VeyonUpdate } catch { $failed = $true }
@@ -47,6 +48,7 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
     $upgrades = @($script:Calls | Where-Object { $_ -like 'upgrade *' })
     Assert-True (($upgrades.Count -gt 0) -eq $ExpectUpgrade) "${Name}: unexpected upgrade"
     if ($ExpectUpgrade) {
+        Assert-True $script:TrackedUpgrade "${Name}: upgrade requires durable mutation tracking"
         Assert-True ($script:Calls.IndexOf('backup') -lt $script:Calls.IndexOf($upgrades[0])) "${Name}: backup must precede upgrade"
         Assert-True ($upgrades[0] -match '--version 4.10.0 --source winget') "${Name}: upgrade must pin the checked version"
         Assert-True (($upgrades[0] -match '/NoMaster') -eq (-not $masterPresent)) "${Name}: must preserve existing installation components"
@@ -69,7 +71,7 @@ Test-Scenario 'backup refused' { function Backup-VeyonConfig { return $false } }
 Test-Scenario 'backup exception' { function Backup-VeyonConfig { throw 'simulated backup failure' } } $false $true
 Test-Scenario 'source update failed' { function Ensure-WingetSources { param($WingetExe); throw 'simulated source failure' } } $false $true
 Test-Scenario 'upgrade failed' {
-    function Invoke-Proc { param($File, $ArgList); $script:Calls.Add(($ArgList -join ' ')); return 1 }
+    function Invoke-Proc { param($File, $ArgList, [switch]$TrackMutation); $script:Calls.Add(($ArgList -join ' ')); $script:TrackedUpgrade = [bool]$TrackMutation; return 1 }
 } $true $true
 Test-Scenario 'dry run' { $Testlauf = $true } $false
 Test-Scenario 'missing post-upgrade version' {

@@ -97,12 +97,16 @@ public static class VeyonRuntimeArgumentFixture {
     $script:VeyonRuntimeLock = Enter-VeyonUpdateLock -Root $protectedTestRoot
     Assert-True ($null -ne $script:VeyonRuntimeLock) 'Runtime marker test could not acquire its lock.'
     $marker = Join-Path $protectedTestRoot 'native-operation.json'
-    $result = Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('normal') -CaptureOutput
+    $result = Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('normal') -CaptureOutput -TrackMutation
     Assert-True ($result.ExitCode -eq 0 -and -not (Test-Path -LiteralPath $marker)) 'Completed process retained a marker.'
-    $result = Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('--exit-failure')
+    $result = Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('--exit-failure') -TrackMutation
     Assert-True ($result.ExitCode -eq 7 -and -not (Test-Path -LiteralPath $marker)) 'Normally completed nonzero exit retained a marker.'
     $timedOut = $false
-    try { Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('--sleep') -TimeoutSeconds 1 | Out-Null }
+    try { Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('--sleep') -TimeoutSeconds 1 -CaptureOutput | Out-Null }
+    catch { $timedOut = $_.Exception.Message -match 'Zeitlimit' }
+    Assert-True ($timedOut -and -not (Test-Path -LiteralPath $marker)) 'Read-only timeout blocked future updates.'
+    $timedOut = $false
+    try { Invoke-VeyonNativeProcess -File $fixtureExe -ArgList @('--sleep') -TimeoutSeconds 1 -TrackMutation | Out-Null }
     catch { $timedOut = $_.Exception.Message -match 'Zeitlimit' }
     Assert-True ($timedOut -and (Test-Path -LiteralPath $marker -PathType Leaf)) 'Uncertain native operation lost its recovery marker.'
     $operation = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json

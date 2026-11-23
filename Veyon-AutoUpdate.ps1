@@ -132,7 +132,8 @@ function Invoke-VeyonNativeProcess {
         [Parameter(Mandatory = $true)][string]$File,
         [string[]]$ArgList,
         [ValidateRange(1, 1800)][int]$TimeoutSeconds = 120,
-        [switch]$CaptureOutput
+        [switch]$CaptureOutput,
+        [switch]$TrackMutation
     )
     Assert-VeyonTrustedExecutable -Path $File
     $start = [System.Diagnostics.ProcessStartInfo]::new()
@@ -147,7 +148,10 @@ function Invoke-VeyonNativeProcess {
     $marker = $null
     $normalExitObserved = $false
     $runtimeLock = Get-Variable -Name 'VeyonRuntimeLock' -Scope Script -ErrorAction SilentlyContinue
-    if ($runtimeLock -and $runtimeLock.Value -is [IO.FileStream]) {
+    if ($TrackMutation -and (-not $runtimeLock -or $runtimeLock.Value -isnot [IO.FileStream])) {
+        throw 'Eine Installation erfordert die aktive Laufzeitsperre.'
+    }
+    if ($TrackMutation) {
         if (-not $runtimeLock.Value.CanRead -or -not $runtimeLock.Value.CanWrite -or
             $runtimeLock.Value.SafeFileHandle.IsClosed -or $runtimeLock.Value.SafeFileHandle.IsInvalid) {
             throw 'Die Laufzeitsperre ist nicht mehr gueltig.'
@@ -203,8 +207,8 @@ function Invoke-VeyonNativeProcess {
 }
 
 function Invoke-Proc {
-    param([string]$File, [string[]]$ArgList, [int]$TimeoutSeconds = 120)
-    return (Invoke-VeyonNativeProcess -File $File -ArgList $ArgList -TimeoutSeconds $TimeoutSeconds).ExitCode
+    param([string]$File, [string[]]$ArgList, [int]$TimeoutSeconds = 120, [switch]$TrackMutation)
+    return (Invoke-VeyonNativeProcess -File $File -ArgList $ArgList -TimeoutSeconds $TimeoutSeconds -TrackMutation:$TrackMutation).ExitCode
 }
 
 function Invoke-VeyonQuery {
@@ -459,11 +463,11 @@ if ($doUpgrade) {
         $args += @('--custom','/NoMaster')
     }
     Write-Log ("Ausführen: " + $wingetPath + " " + ($args -join ' '))
-    $ec = Invoke-Proc -File $wingetPath -ArgList $args -TimeoutSeconds 1800
+    $ec = Invoke-Proc -File $wingetPath -ArgList $args -TimeoutSeconds 1800 -TrackMutation
     Write-Log ("winget Exitcode: " + $ec)
     if ($ec -ne 0) { throw "WinGet-Upgrade fehlgeschlagen (Exitcode $ec)." }
 } else {
-    Write-Log "Kein Update notwendig – Skip (kein Backup, kein Upgrade)."
+    Write-Log 'Kein Upgrade ausgefuehrt (kein Backup, kein Upgrade).'
 }
 
 $afterVer = Get-VeyonInstalledVersion

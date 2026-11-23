@@ -66,7 +66,7 @@ try {
     }
     . (Join-Path $directory 'Veyon-SelfUpdate.ps1')
     try { Invoke-VeyonSelfUpdate -Root $root -State $state | Out-Null }
-    catch { Write-VeyonSelfUpdateLog -Root $root -Message ('Selbstupdate nicht ausgefuehrt: ' + $_.Exception.Message) }
+    catch { Write-VeyonSelfUpdateLog -Root $root -Message ('Hinweis bei der Selbstupdate-Pruefung: ' + $_.Exception.Message) }
     # Re-read after a possible atomic activation. A corrupt state is never replaced with an older copy.
     Assert-VeyonProtectedRoot -Root $root
     $state = Read-VeyonState -Root $root
