@@ -1,12 +1,7 @@
 # Sicherheit / Security
 
-Sicherheitsprobleme bitte nicht mit Exploit-Details oder Zugangsdaten in öffentlichen Issues melden. Verwende nach Möglichkeit eine private Sicherheitsmeldung über GitHub oder den am [GitHub-Profil](https://github.com/Railsimulatornet) hinterlegten Kontaktweg.
+Bitte melde Sicherheitsprobleme vertraulich über die GitHub-Sicherheitsmeldungen, sofern diese angeboten werden. Alternativ kannst du den Kontaktweg im [GitHub-Profil](https://github.com/Railsimulatornet) nutzen. Veröffentliche keine Zugangsdaten oder technischen Angriffsnachweise in öffentlichen Issues.
 
-Dieses Projekt richtet die Veyon-Aktualisierung mit erhöhten Rechten ein. Deshalb werden Änderungen am Installer, den Update-Skripten und dem Build-Prozess besonders sorgfältig geprüft.
+Der Updater richtet eine geplante Aufgabe mit erhöhten Rechten ein. Lade das Installationspaket deshalb ausschließlich aus dem [offiziellen Repository](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases) herunter und prüfe die veröffentlichten Prüfsummen sowie gegebenenfalls die digitale Signatur.
 
-- Kein ungeprüfter Download darf unter SYSTEM ausgeführt werden.
-- Kein Signierschlüssel und kein Zugangstoken gehört in den Quellcode.
-- Automatische Selbstupdates benötigen vor ihrer Aktivierung eine geprüfte Vertrauenskette und Wiederherstellung.
-- Neue Funktionen werden zuerst als Pre-Release erprobt.
-
-Die verbindlichen Veröffentlichungsschritte stehen in der [Release-Checkliste](RELEASE_CHECKLIST.md). Die [Code signing policy](CODE_SIGNING_POLICY.md) beschreibt die geplante Signierung.
+Weitere Angaben zur Signierung: [Code signing policy](CODE_SIGNING_POLICY.md).
