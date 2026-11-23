@@ -16,6 +16,8 @@ $certificate = $null
 $wrongKey = $null
 $wrongCertificate = $null
 $originalSevenZip = $env:SEVEN_ZIP
+$testFailure = $null
+$phase = 'prepare isolated fixture'
 
 function Assert-SignerRejected([scriptblock]$Action, [string]$Message) {
     $rejected = $false
@@ -52,6 +54,7 @@ try {
     if (-not $sevenZip) { $sevenZip = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) '7-Zip\7z.exe' }
     if (-not [IO.File]::Exists($sevenZip)) { throw '7-Zip is required for the signer test.' }
     $env:SEVEN_ZIP = $sevenZip
+    $phase = 'create disposable certificate'
     if ($Portable) { $key = [Security.Cryptography.RSA]::Create(); $key.KeySize = 3072 }
     else { $key = [Security.Cryptography.RSACng]::new(3072) }
     $certificate = New-DisposableCertificate $key
@@ -82,19 +85,23 @@ try {
     [IO.File]::WriteAllText($builderPath, $builderText, [Text.UTF8Encoding]::new($false))
     $hooks = Join-Path $temporary 'empty-hooks'
     $null = [IO.Directory]::CreateDirectory($hooks)
+    $phase = 'commit isolated source fixture'
     Invoke-FixtureGit @('init', '--template=', '--initial-branch=main') | Out-Null
     Invoke-FixtureGit @('config', 'core.hooksPath', $hooks) | Out-Null
     Invoke-FixtureGit @('config', 'core.autocrlf', 'false') | Out-Null
     Invoke-FixtureGit @('add', '--all') | Out-Null
     Invoke-FixtureGit @('-c', 'user.name=Release test', '-c', 'user.email=release-test@example.invalid', 'commit', '-m', 'Release test fixture') | Out-Null
     $commit = ([string](Invoke-FixtureGit @('rev-parse', 'HEAD'))).Trim()
+    $phase = 'build isolated release assets'
     & $python $builderPath --output $assets
     if ($LASTEXITCODE -ne 0) { throw 'Fixture build failed.' }
     $arguments = @{AssetDirectory=$assets; SourceCommit=$commit; PfxPath=$pfxPath; SevenZip=$sevenZip}
+    $phase = 'validate release assets without signing'
     & $signerPath @arguments -ValidateOnly
     if ([IO.File]::Exists($signaturePath)) { throw 'Read-only validation wrote a signature.' }
     Write-Host 'PASS: complete artifact validation without a private-key operation'
 
+    $phase = 'reject modified source and assets'
     Assert-SignerRejected { & $signerPath -AssetDirectory $assets -SourceCommit ('0'*40) -PfxPath $pfxPath -SevenZip $sevenZip -ValidateOnly } 'Wrong source commit accepted.'
     $readmePath = Join-Path $fixture 'README.md'
     $originalReadme = [IO.File]::ReadAllBytes($readmePath)
@@ -121,6 +128,7 @@ try {
     } finally { [IO.File]::WriteAllBytes($updatePath, $update) }
     Write-Host 'PASS: wrong source commit, dirty checkout, hidden index flags, wrong channel and changed payload rejected'
 
+    $phase = 'reject wrong password and wrong key'
     $wrongPasswordPath = Join-Path $temporary 'wrong-password.pfx'
     [IO.File]::WriteAllBytes($wrongPasswordPath, $certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pfx, 'Different-disposable-password'))
     Assert-SignerRejected { & $signerPath -AssetDirectory $assets -SourceCommit $commit -PfxPath $wrongPasswordPath -SevenZip $sevenZip } 'Wrong PFX password accepted.'
@@ -133,6 +141,7 @@ try {
     if ([IO.File]::Exists($signaturePath)) { throw 'Failed signing left a signature file.' }
     Write-Host 'PASS: wrong password and wrong private key leave no signature'
 
+    $phase = 'sign and verify with disposable key'
     & $signerPath @arguments
     $signature = [IO.File]::ReadAllBytes($signaturePath)
     if ($signature.Length -ne 384 -or -not $key.VerifyData($manifest, $signature,
@@ -144,11 +153,27 @@ try {
     if ([Convert]::ToBase64String($after) -cne [Convert]::ToBase64String($signature)) { throw 'Signature changed after rejected overwrite.' }
     Write-Host 'PASS: ephemeral PFX import, RSA-3072/PSS signing, verification and no overwrite'
     if ($Portable) { Write-Host 'Portable signing passed; Windows CNG/PowerShell 5.1 validation remains a separate check.' }
+} catch {
+    $testFailure = $_
+    Write-Host ('Signer test failed during: ' + $phase)
+    Write-Host ('Failure type: ' + $_.Exception.GetType().FullName)
+    Write-Host $_.ScriptStackTrace
+    throw
 } finally {
-    if ($wrongCertificate) { $wrongCertificate.Dispose() }
-    if ($wrongKey) { $wrongKey.Dispose() }
-    if ($certificate) { $certificate.Dispose() }
-    if ($key) { $key.Dispose() }
+    $cleanupFailure = $null
+    foreach ($resource in @($wrongCertificate, $wrongKey, $certificate, $key)) {
+        try { if ($null -ne $resource) { $resource.Dispose() } }
+        catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
+    }
     $env:SEVEN_ZIP = $originalSevenZip
-    if ([IO.Directory]::Exists($temporary)) { [IO.Directory]::Delete($temporary, $true) }
+    try {
+        if ([IO.Directory]::Exists($temporary)) {
+            # Git object files may be read-only on Windows. This is our own fixture.
+            Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction Stop
+        }
+    } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
+    if ($null -ne $cleanupFailure) {
+        if ($null -ne $testFailure) { Write-Warning 'Isolated signer-test cleanup failed; the original test failure is preserved.' }
+        else { throw $cleanupFailure }
+    }
 }
