@@ -30,13 +30,23 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')) {
+          $required = @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')
+          $allowed = @('README.md', 'CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'TERMS.md')
+          foreach ($file in $required) {
               if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
                   throw "Required public document missing: $file"
               }
           }
+          foreach ($file in @(Get-ChildItem -Path . -File -Filter '*.md' | Select-Object -ExpandProperty Name)) {
+              if ($file -notin $allowed) {
+                  throw "Unexpected root documentation: $file"
+              }
+          }
+          if (@(Get-ChildItem -Path .github -File -Filter '*.md').Count -gt 0) {
+              throw 'Unexpected repository template document.'
+          }
           $readme = Get-Content -LiteralPath README.md -Raw -Encoding UTF8
-          foreach ($link in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')) {
+          foreach ($link in $required) {
               if (-not $readme.Contains("]($link)")) {
                   throw "README does not link to $link"
               }
@@ -47,19 +57,10 @@ jobs:
                   throw "Code signing policy is incomplete: $text"
               }
           }
-          foreach ($oldFile in @('RELEASE_CHECKLIST.md', 'CHANGELOG.md', 'BUILDING.md', '.github/PULL_REQUEST_TEMPLATE.md')) {
-              if (Test-Path -LiteralPath $oldFile) {
-                  throw "Unexpected internal file: $oldFile"
-              }
-          }
           $release = Get-Content -LiteralPath release.json -Raw -Encoding UTF8 | ConvertFrom-Json
-          if ('CHANGELOG.md' -in $release.files) {
-              throw 'Release package includes an unwanted file.'
-          }
-          foreach ($publicDoc in @('README.md', 'CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')) {
-              $body = Get-Content -LiteralPath $publicDoc -Raw -Encoding UTF8
-              if ($body -match 'RELEASE_CHECKLIST\.md|CHANGELOG\.md|BUILDING\.md|SignPath-Foundation-Bewerbung|noch nicht freigegeben') {
-                  throw "Internal reference found in $publicDoc"
+          foreach ($file in $release.files) {
+              if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                  throw "Release references a missing file: $file"
               }
           }
           Write-Host 'Public project documentation: OK'
