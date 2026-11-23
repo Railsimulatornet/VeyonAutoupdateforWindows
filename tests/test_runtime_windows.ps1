@@ -20,6 +20,7 @@ $temporary = Join-Path ([IO.Path]::GetTempPath()) ('Veyon runtime smoke test ' +
 $fixtureExe = Join-Path $temporary 'argument fixture.exe'
 $regExe = Join-Path ([Environment]::SystemDirectory) 'reg.exe'
 $taskKillExe = Join-Path ([Environment]::SystemDirectory) 'taskkill.exe'
+$nativePowerShell = Get-VeyonPowerShell
 $registrySuffix = 'Software\Veyon Runtime Test ' + [guid]::NewGuid().ToString('N')
 $registryPath = 'HKCU:\' + $registrySuffix
 $nativeRegistryPath = 'HKCU\' + $registrySuffix
@@ -31,7 +32,7 @@ $script:VeyonRuntimeRoot = $null
 # installer; the only extra executable here is this locally compiled fixture.
 function Assert-VeyonTrustedExecutable {
     param([string]$Path)
-    if ($Path -notin @($fixtureExe, $regExe, $taskKillExe)) { throw 'Unexpected test executable.' }
+    if ($Path -notin @($fixtureExe, $regExe, $taskKillExe, $nativePowerShell)) { throw 'Unexpected test executable.' }
 }
 
 try {
@@ -90,6 +91,29 @@ public static class VeyonRuntimeArgumentFixture {
     try { & $sourcePath } catch { $directRefused = $_.Exception.Message -match 'offene Sperre' }
     Assert-True $directRefused 'Direct runtime invocation without the launcher lock was accepted.'
     Write-Host 'PASS: direct runtime requires the launcher lock'
+
+    $callerModulePath = Join-Path $temporary 'foreign PowerShell modules'
+    [IO.Directory]::CreateDirectory($callerModulePath) | Out-Null
+    $moduleProbe = Join-Path $temporary 'standalone dry run.ps1'
+    $probeText = @'
+param([string]$Updater)
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) { throw 'Native Windows PowerShell 5.1 required.' }
+& $Updater -Testlauf
+if ($env:PSModulePath -cne [IO.Path]::Combine($PSHOME, 'Modules')) { throw 'Runtime retained the caller module path.' }
+Write-Host 'DIRECT-PIN-OK'
+'@
+    [IO.File]::WriteAllText($moduleProbe, $probeText, [Text.UTF8Encoding]::new($true))
+    $savedModulePath = $env:PSModulePath
+    try {
+        $env:PSModulePath = $callerModulePath
+        $probe = Invoke-VeyonNativeProcess -File $nativePowerShell -ArgList @(
+            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $moduleProbe, '-Updater', $sourcePath
+        ) -CaptureOutput
+    } finally { $env:PSModulePath = $savedModulePath }
+    Assert-True ($probe.ExitCode -eq 0 -and $probe.Output.Contains('DIRECT-PIN-OK')) 'Standalone PS5.1 dry run retained an incompatible caller module path.'
+    Write-Host 'PASS: standalone native dry run pins its own module path'
+
 
     $protectedTestRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('VeyonUpdater-runtime-test-' + [guid]::NewGuid().ToString('N'))
     Initialize-VeyonProtectedRoot -Root $protectedTestRoot

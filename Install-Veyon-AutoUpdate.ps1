@@ -1,5 +1,6 @@
 ﻿# Veyon Updater V1.5.0
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 
 function Test-VeyonAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 
 $PkgId   = 'VeyonSolutions.Veyon'
 $Base    = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'VeyonUpdater'

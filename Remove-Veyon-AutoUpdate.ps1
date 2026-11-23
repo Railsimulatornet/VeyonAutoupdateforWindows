@@ -1,6 +1,7 @@
 ﻿# Veyon Updater V1.5.0
 param([switch]$DeleteBackups)
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 
 function Invoke-VeyonRemoval {
     param([switch]$DeleteBackups)

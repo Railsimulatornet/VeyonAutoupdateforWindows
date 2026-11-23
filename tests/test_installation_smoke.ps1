@@ -13,6 +13,8 @@ $systemTaskName = 'Veyon Updater installation check ' + [guid]::NewGuid().ToStri
 $probeRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('VeyonAccessTest-' + [guid]::NewGuid().ToString('N'))
 $testUser = 'VeyonTest' + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $userCreated = $false
+$moduleRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('VeyonModuleTest-' + [guid]::NewGuid().ToString('N'))
+$moduleMarker = Join-Path $moduleRoot 'caller-module-loaded.txt'
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ("veyon setup ' package " + [guid]::NewGuid().ToString('N'))
 
 if ((Get-ScheduledTask -TaskPath '\' | Where-Object TaskName -eq $taskName) -or
@@ -58,6 +60,36 @@ function Assert-Installation {
     Write-Host "PASS: $TriggerType, two-minute delay, SYSTEM, bounded runtime, protected files and task"
 }
 
+function Initialize-CallerModuleFixture {
+    $directory = Join-Path $moduleRoot 'Microsoft.PowerShell.Utility'
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $manifest = "@{ RootModule = 'Microsoft.PowerShell.Utility.psm1'; ModuleVersion = '1.0.0'; FunctionsToExport = @('Get-FileHash'); CmdletsToExport = @(); AliasesToExport = @() }"
+    [IO.File]::WriteAllText((Join-Path $directory 'Microsoft.PowerShell.Utility.psd1'), $manifest)
+    $module = "[IO.File]::WriteAllText('" + $moduleMarker.Replace("'", "''") + "', 'caller module loaded')" + "`r`n" +
+        "function Get-FileHash { throw 'Unexpected caller module was loaded.' }`r`nExport-ModuleMember -Function Get-FileHash"
+    [IO.File]::WriteAllText((Join-Path $directory 'Microsoft.PowerShell.Utility.psm1'), $module)
+    $control = Join-Path $moduleRoot 'control.ps1'
+    [IO.File]::WriteAllText($control, 'Get-FileHash -LiteralPath $PSCommandPath -ErrorAction Stop')
+    $saved = $env:PSModulePath
+    $process = $null
+    try {
+        $env:PSModulePath = $moduleRoot
+        $process = Start-Process -FilePath $nativePowerShell -PassThru -ArgumentList (
+            '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f $control) `
+            -RedirectStandardOutput (Join-Path $moduleRoot 'control-output.txt') `
+            -RedirectStandardError (Join-Path $moduleRoot 'control-error.txt')
+        if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Caller module control timed out.' }
+        if ($process.ExitCode -eq 0 -or -not [IO.File]::Exists($moduleMarker)) {
+            throw 'Caller module fixture was not discovered by unprotected Windows PowerShell.'
+        }
+    } finally {
+        $env:PSModulePath = $saved
+        if ($process) { $process.Dispose() }
+    }
+    [IO.File]::Delete($moduleMarker)
+    Write-Host 'PASS: unprotected native Windows PowerShell discovers the caller-module fixture'
+}
+
 function Invoke-SystemDryRun {
     $checkScript = Join-Path $root 'installation-system-check.ps1'
     $proof = Join-Path $root 'installation-system-proof.txt'
@@ -67,10 +99,12 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($identity -ne 'S-1-5-18') { throw 'The process is not running as SYSTEM.' }
 $root = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'VeyonUpdater'
 $powershell = Join-Path ([Environment]::GetFolderPath('Windows')) 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$env:PSModulePath = '__CALLER_MODULE_PATH__'
 & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'Start-VeyonUpdater.ps1') -Testlauf
 if ($LASTEXITCODE -ne 0) { throw 'The installed launcher dry run failed.' }
 [IO.File]::WriteAllText((Join-Path $root 'installation-system-proof.txt'), $identity)
 '@
+    $contents = $contents.Replace('__CALLER_MODULE_PATH__', $moduleRoot.Replace("'", "''"))
     [IO.File]::WriteAllText($checkScript, $contents)
     Set-VeyonProtectedAcl -Path $checkScript
     $stateHash = (Get-FileHash -LiteralPath (Join-Path $root 'state.json')).Hash
@@ -92,7 +126,8 @@ if ($LASTEXITCODE -ne 0) { throw 'The installed launcher dry run failed.' }
             [IO.File]::Exists((Join-Path $root 'selfupdate-check.txt')) -or [IO.File]::Exists((Join-Path $root 'veyon_autoupdate.log'))) {
             throw 'The SYSTEM dry run changed runtime state.'
         }
-        Write-Host 'PASS: installed launcher and health check really executed as SYSTEM without update/network state'
+        if ([IO.File]::Exists($moduleMarker)) { throw 'SYSTEM launcher executed an inherited caller module.' }
+        Write-Host 'PASS: installed launcher and health check executed as SYSTEM with a polluted inherited module path and no update/network state'
     } finally {
         Unregister-ScheduledTask -TaskName $systemTaskName -Confirm:$false -ErrorAction SilentlyContinue
         foreach ($path in @($checkScript, $proof)) { if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) } }
@@ -165,10 +200,14 @@ Write-Output 'STANDARD_USER_DENIED'
 
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../release.json') -Raw | ConvertFrom-Json
 $assets = (Get-Item -LiteralPath $AssetDirectory).FullName
+$pwshPath = (Get-Command pwsh.exe -CommandType Application -ErrorAction Stop).Source
+$incompatibleModulePath = Join-Path ([IO.Path]::GetDirectoryName($pwshPath)) 'Modules'
+if (-not [IO.Directory]::Exists($incompatibleModulePath)) { throw 'PowerShell 7 modules are required for the inherited-environment regression.' }
 try {
     $env:VEYON_SETUP_NO_PAUSE = '1'
     Expand-Archive -LiteralPath (Join-Path $assets $config.archive) -DestinationPath $temporary
     . (Join-Path $temporary 'VeyonUpdater.Security.ps1')
+    Initialize-CallerModuleFixture
     $legacyBackups = Join-Path $legacy 'config-backups'
     [IO.Directory]::CreateDirectory($legacyBackups) | Out-Null
     $legacyBackup = Join-Path $legacyBackups 'config-installation-test.json'
@@ -181,11 +220,14 @@ try {
     $legacyPrincipal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
     Register-ScheduledTask -TaskName $taskName -Action $legacyAction -Principal $legacyPrincipal -Trigger (New-ScheduledTaskTrigger -AtStartup) -Force | Out-Null
     Set-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -Type DWord -Value 0
+    $savedModulePath = $env:PSModulePath
     Push-Location -LiteralPath $temporary
     try {
+        # Reproduce a PowerShell 7 -> CMD -> Windows PowerShell process tree.
+        $env:PSModulePath = $incompatibleModulePath
         & (Join-Path $windows 'System32\cmd.exe') /d /c Install-Veyon-AutoUpdate.cmd
         if ($LASTEXITCODE -ne 0) { throw "ZIP installation failed with exit code $LASTEXITCODE." }
-    } finally { Pop-Location }
+    } finally { $env:PSModulePath = $savedModulePath; Pop-Location }
     Assert-Installation -TriggerType BootTrigger -PackageRoot $temporary
     $copiedBackup = Join-Path (Join-Path $root 'config-backups') 'legacy-config-installation-test.json'
     if ((Get-FileHash -LiteralPath $copiedBackup).Hash -ne (Get-FileHash -LiteralPath $legacyBackup).Hash -or
@@ -195,6 +237,14 @@ try {
     Assert-VeyonAcl -Path $legacyBackups -Private
     Assert-VeyonAcl -Path $legacyBackup -Private
     Write-Host 'PASS: legacy task migration, retained backups and unchanged Veyon parent permissions'
+    $savedModulePath = $env:PSModulePath
+    try {
+        $env:PSModulePath = $moduleRoot
+        & $nativePowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $temporary 'Install-Veyon-AutoUpdate.ps1')
+        if ($LASTEXITCODE -ne 0) { throw 'Direct Windows PowerShell installation with caller module path failed.' }
+    } finally { $env:PSModulePath = $savedModulePath }
+    if ([IO.File]::Exists($moduleMarker)) { throw 'Installer executed an inherited caller module.' }
+    Write-Host 'PASS: direct Windows PowerShell installer ignores inherited caller modules'
     Invoke-SystemDryRun
 
     Set-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -Type DWord -Value 1
@@ -206,8 +256,14 @@ try {
     Assert-Installation -TriggerType LogonTrigger -PackageRoot $temporary
     Disable-ScheduledTask -TaskName $taskName -TaskPath '\' | Out-Null
     Test-StandardUserAccess -BackupPath $copiedBackup -LegacyBackupPath $legacyBackup
-    & $nativePowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $temporary 'Remove-Veyon-AutoUpdate.ps1')
-    if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($copiedBackup) -or
+    $savedModulePath = $env:PSModulePath
+    Push-Location -LiteralPath $temporary
+    try {
+        $env:PSModulePath = $incompatibleModulePath
+        & (Join-Path $windows 'System32\cmd.exe') /d /c Remove-Veyon-AutoUpdate.cmd
+        if ($LASTEXITCODE -ne 0) { throw "Uninstall wrapper failed with exit code $LASTEXITCODE." }
+    } finally { $env:PSModulePath = $savedModulePath; Pop-Location }
+    if (-not [IO.File]::Exists($copiedBackup) -or
         (Get-ScheduledTask -TaskPath '\' | Where-Object TaskName -eq $taskName) -or
         [IO.Directory]::Exists((Join-Path $root 'versions'))) {
         throw 'Uninstallation did not retain backups or remove the task and program.'
@@ -226,7 +282,7 @@ try {
         Unregister-ScheduledTask -TaskName $name -TaskPath '\' -Confirm:$false -ErrorAction SilentlyContinue
     }
     if ($userCreated) { Remove-LocalUser -Name $testUser -ErrorAction SilentlyContinue }
-    foreach ($path in @($root, $legacyParent, $temporary, $probeRoot)) {
+    foreach ($path in @($root, $legacyParent, $temporary, $probeRoot, $moduleRoot)) {
         if ([IO.Directory]::Exists($path)) { [IO.Directory]::Delete($path, $true) }
     }
 }

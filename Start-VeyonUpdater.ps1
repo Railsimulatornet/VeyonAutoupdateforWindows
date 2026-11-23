@@ -1,6 +1,8 @@
 # Veyon Updater bootstrap protocol 1
 param([switch]$Testlauf)
 $ErrorActionPreference = 'Stop'
+# Resolve modules only from the PowerShell installation used by this process.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 Set-StrictMode -Version 2.0
 
 $root = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'VeyonUpdater'

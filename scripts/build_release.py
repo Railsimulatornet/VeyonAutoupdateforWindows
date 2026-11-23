@@ -200,7 +200,10 @@ def check(files):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         if os.name == 'nt':
-            env = dict(os.environ)
+            # A Python process started by PowerShell 7 inherits its module paths.
+            # Let Windows PowerShell construct its compatible defaults at startup.
+            env = {key: value for key, value in os.environ.items()
+                   if key.upper() != 'PSMODULEPATH'}
             for variable, name in CONFIG['test_sources'].items():
                 env[variable] = str(extracted / name)
             powershell = str(Path(os.environ['SystemRoot']) /

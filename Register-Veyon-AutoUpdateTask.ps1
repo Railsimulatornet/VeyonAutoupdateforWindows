@@ -1,6 +1,7 @@
 ﻿param([Parameter(Mandatory = $true)][string]$UpdaterPath)
 
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 . (Join-Path $PSScriptRoot 'VeyonUpdater.Security.ps1')
 $root = Get-VeyonRoot
 Assert-VeyonProtectedRoot -Root $root

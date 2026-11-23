@@ -1,6 +1,7 @@
 @echo off
 :: Veyon Updater V1.5.0
 setlocal EnableExtensions DisableDelayedExpansion
+set "PSModulePath="
 chcp 65001 >nul
 set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PS_EXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
