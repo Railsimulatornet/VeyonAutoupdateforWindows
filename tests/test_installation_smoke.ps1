@@ -200,7 +200,7 @@ Write-Output 'STANDARD_USER_DENIED'
     $user = New-LocalUser -Name $testUser -Password $secure -AccountNeverExpires -PasswordNeverExpires
     $script:userCreated = $true
     if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID.Value -eq $user.SID.Value })) {
-        Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user.SID
+        Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
     }
     $credential = [Management.Automation.PSCredential]::new(($env:COMPUTERNAME + '\' + $testUser), $secure)
     $state = Read-VeyonState -Root $root
