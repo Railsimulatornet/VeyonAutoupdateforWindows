@@ -97,7 +97,7 @@ Einen Prüflauf kannst du in einer PowerShell mit Administratorrechten starten:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\Veyon\Update\Veyon-AutoUpdate.ps1" -Testlauf
 ```
 
-Der Prüflauf liest nur die lokale Dateiversion. Er aktualisiert keine WinGet-Quellen, installiert nichts und verändert keine Veyon-Einstellungen. Ist WinGet im Ausführungskontext nicht verfügbar, beendet sich das Skript mit einem Logeintrag. Prüfe in diesem Fall App Installer / WinGet.
+Der Prüflauf liest nur die lokale Dateiversion. Er aktualisiert keine WinGet-Quellen, installiert nichts und verändert keine Veyon-Einstellungen. Für den normalen Updatebetrieb muss WinGet im SYSTEM-Kontext verfügbar sein. Wenn kein Update erfolgt, prüfe App Installer / WinGet und das Laufprotokoll.
 
 ### Aktualisierung und Deinstallation
 
@@ -226,7 +226,7 @@ To start a test run from an elevated PowerShell:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\Veyon\Update\Veyon-AutoUpdate.ps1" -Testlauf
 ```
 
-The test run only reads the locally installed file version. It does not update WinGet sources, install software or change Veyon settings. If WinGet is unavailable in the execution context, the script stops and writes a log entry. Check App Installer / WinGet in that case.
+The test run only reads the locally installed file version. It does not update WinGet sources, install software or change Veyon settings. For normal updates, WinGet must be available in the SYSTEM context. If no update occurs, check App Installer / WinGet and the run log.
 
 ### Updates and removal
 
