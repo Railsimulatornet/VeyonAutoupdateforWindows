@@ -129,6 +129,10 @@ def check(files):
                    str(ROOT / 'tests/test_update.ps1')] if CONFIG.get('setup') else [
                    'python3', '-m', 'unittest', 'discover', '-s', 'tests', '-v']
         subprocess.run(command, cwd=ROOT, env=env, check=True)
+        if CONFIG.get('setup'):
+            for test_name in ('test_parser.ps1', 'test_installer.ps1'):
+                subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                                str(ROOT / 'tests' / test_name), str(extracted)], cwd=ROOT, check=True)
         if LAUNCH_CHECK:
             if not CONFIG.get('setup') or os.name != 'nt':
                 raise RuntimeError('Setup launch check requires Windows and a setup package')

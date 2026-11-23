@@ -23,6 +23,6 @@ Windows und 7-Zip werden für den Setup-Bau benötigt. Das unveränderte SFX-Mod
 
 Windows and 7-Zip are required for the setup build. The unchanged SFX module comes from the official LZMA SDK 26.05 and is checksum-pinned. Provenance and license are in `packaging/`. Verification extracts the EXE with 7-Zip without running the installer. ZIP and EXE must contain exactly the same payload files.
 
-Die Windows-CI prüft zusätzlich `python scripts/build_release.py --check --check-setup-launch`. Dabei startet das SFX-Modul ausschließlich ein harmloses Ersatzskript und muss seinen Entpackordner danach entfernen. Der echte Installer wird nicht ausgeführt. Dieser Starttest benötigt einen Windows-Testrechner mit passenden Rechten für den unbeaufsichtigten EXE-Start.
+Die Windows-CI prüft auch den Start des SFX-Moduls und installiert danach beide Pakete auf dem Testrechner. Sie kontrolliert Start und Anmeldung mit zwei Minuten Verzögerung, das SYSTEM-Konto, die Akku-Einstellungen und die Prüfsumme des installierten Skripts. Die geprüften ZIP- und EXE-Dateien stehen nach erfolgreichem Lauf als CI-Artefakt bereit.
 
-Windows CI additionally runs `python scripts/build_release.py --check --check-setup-launch`. The SFX module runs only a harmless stand-in and must remove its extraction directory afterwards. The real installer is not executed. This launch test requires a Windows test runner with suitable rights for unattended EXE execution.
+Windows CI also checks the SFX bootstrap and then installs both packages on the test runner. It verifies startup and logon with a two-minute delay, the SYSTEM account, battery settings and the installed script hash. The tested ZIP and EXE are available as a CI artifact after a successful run.

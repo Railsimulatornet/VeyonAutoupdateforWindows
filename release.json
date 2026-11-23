@@ -4,6 +4,7 @@
   "archive": "VeyonUpdater_v1.4.zip",
   "files": [
     "Install-Veyon-AutoUpdate.cmd",
+    "Register-Veyon-AutoUpdateTask.ps1",
     "Remove-Veyon-AutoUpdate.cmd",
     "Veyon-AutoUpdate.ps1",
     "README.md",
