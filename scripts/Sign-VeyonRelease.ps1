@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $certificateHash = '7b698f2726348060cddf8b10a5a82d39ed907062265edf2e926dd9d6c5a72b7d'
 $updateNames = @('Veyon-AutoUpdate.ps1', 'Veyon-SelfUpdate.ps1')
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Get-ReleaseHash([byte[]]$Bytes) {
