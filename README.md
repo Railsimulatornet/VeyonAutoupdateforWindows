@@ -1,278 +1,136 @@
 # Veyon Auto-Update (WinGet)
 
-Version: **1.4**
+Version: **1.5.0**
 
 [![PowerShell](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/actions/workflows/powershell-validation.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/actions/workflows/powershell-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 [Deutsch](#deutsch) · [English](#english)
 
-## Code signing policy
-
-[Code signing policy](CODE_SIGNING_POLICY.md) · [Datenschutz / Privacy](PRIVACY.md) · [Sicherheit / Security](SECURITY.md)
+[Code signing policy](CODE_SIGNING_POLICY.md) · [Datenschutz / Privacy](PRIVACY.md) · [Sicherheit / Security](SECURITY.md) · [Nutzungshinweise / Terms](TERMS.md)
 
 ## Deutsch
 
-Automatische Veyon-Updates über **WinGet** auf Windows-Geräten. Der Installer richtet eine geplante Aufgabe als **SYSTEM** ein. Sie startet mit etwa zwei Minuten Verzögerung beim Systemstart oder, bei aktiviertem Windows-Schnellstart, bei der Benutzeranmeldung.
-
-Diese Anleitung beschreibt den veröffentlichten Stand **V1.4**. Für die Einrichtung werden Administratorrechte benötigt; die späteren automatischen Läufe benötigen keine Administratoranmeldung des Benutzers.
-
-### Funktionen
-
-- Versionsprüfung für das WinGet-Paket `VeyonSolutions.Veyon` und unbeaufsichtigtes Upgrade.
-- Bei ermittelbaren Versionsnummern wird nur aktualisiert, wenn die Online-Version neuer ist als die installierte Version.
-- Vor einem so erkannten Update wird die Veyon-Konfiguration gesichert: zunächst per CLI als JSON, bei Fehlschlag als Registry-Export.
-- Ein zuvor nicht vorhandener Veyon Master wird durch den Installationsschalter `/NoMaster` beim Upgrade ausgelassen.
-- Geplante Aufgabe mit etwa zwei Minuten Verzögerung; V1.4 erlaubt den Task auch im Akkubetrieb.
-- Deutsches Laufprotokoll, WinGet-Log und automatische Rotation der Konfigurationssicherungen.
+Der Updater aktualisiert eine vorhandene Veyon-Installation über WinGet. Eine geplante Aufgabe läuft als SYSTEM etwa zwei Minuten nach dem Systemstart oder, bei aktiviertem Windows-Schnellstart, nach der Benutzeranmeldung. Für die Einrichtung werden Administratorrechte benötigt; spätere automatische Läufe benötigen keine Administratoranmeldung.
 
 ### Voraussetzungen
 
-- Windows 10 oder Windows 11 mit Windows PowerShell und **App Installer / WinGet**.
-- Eine bestehende Veyon-Installation; Veyon Master ist optional.
-- Administratorrechte für Installation und Deinstallation des Updaters.
-- Netzwerkzugriff auf die WinGet-Quelle und den Veyon-Download.
+- Windows 10 oder 11 mit Windows PowerShell 5.1 und .NET Framework 4.8.
+- App Installer / WinGet, auch im SYSTEM-Kontext verfügbar.
+- Bereits installiertes Veyon; Veyon Master ist optional.
+- Zugriff auf GitHub für Updater-Aktualisierungen sowie auf WinGet-Quellen und Veyon-Downloads.
 
-### Schnellstart: Setup-Datei
+### Installation
 
-Prüfe vor dem Start die Herkunft und Prüfsumme der Datei. Die Angaben zur digitalen Signierung findest du in der [Code signing policy](CODE_SIGNING_POLICY.md).
+1. Lade das gewünschte Paket aus den [offiziellen Releases](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases). Für diese Version heißen die Dateien `VeyonUpdater_v1.5.0_Setup.exe` und `VeyonUpdater_v1.5.0.zip`.
+2. Prüfe Herkunft und SHA-256 anhand der Angaben zu genau diesem Release. Die erste Installation legt den vertrauenswürdigen Startpunkt fest; beachte die [Signierrichtlinie](CODE_SIGNING_POLICY.md).
+3. Starte die Setup-Datei. Alternativ entpacke die ZIP vollständig und führe `Install-Veyon-AutoUpdate.cmd` als Administrator aus.
+4. Prüfe die Aufgabe `Veyon AutoUpdate (winget)` und führe den unten beschriebenen Prüflauf aus. Teste das Paket auf einem passenden Gerät, bevor du es breiter verteilst.
 
-1. Öffne das [aktuelle Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) und lade die Setup-Datei herunter. Für V1.4 heißt sie **`VeyonUpdater_v1.4_Setup.exe`**.
-2. Starte die Datei und bestätige die Administratorabfrage. Falls erforderlich, verwende **Als Administrator ausführen**.
-3. Folge dem Setup. Es entpackt die Dateien und richtet den Updater ein.
-4. Prüfe danach in der Windows-Aufgabenplanung die Aufgabe **`Veyon AutoUpdate (winget)`** und das Log unter `C:\ProgramData\Veyon\Update\`.
+Das Setup installiert nach `C:\ProgramData\VeyonUpdater`. Startprogramm, Sicherheitskern, Zustand, Versionsdateien und Sicherungen sind gegen Änderungen durch Standardbenutzer geschützt. Konfigurationssicherungen sind nur für Administratoren und SYSTEM lesbar.
 
-Die Setup-Datei ist der einfache Installationsweg, zum Beispiel für Eltern- oder Schülergeräte.
+Beim Wechsel von Version 1.4 wird die vorhandene Aufgabe umgestellt. Vorhandene Konfigurationssicherungen aus `C:\ProgramData\Veyon\Update\config-backups` werden abgesichert und übernommen. Die bisherigen Sicherungsdateien bleiben erhalten. Die Berechtigungen des übergeordneten Veyon-Verzeichnisses werden dabei nicht pauschal verändert.
 
-#### Alternative: ZIP-Paket
+### Updateverhalten
 
-1. Lade die ZIP aus dem [aktuellen Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest), für V1.4 **`VeyonUpdater_v1.4.zip`**.
-2. Entpacke sie vollständig über **Alle extrahieren**. Starte den Installer aus dem entpackten Ordner.
-3. Führe `Install-Veyon-AutoUpdate.cmd` als Administrator aus. Die CMD-Dateien und `Veyon-AutoUpdate.ps1` müssen im selben Ordner liegen.
-
-Der Installer kopiert das PowerShell-Skript nach `C:\ProgramData\Veyon\Update\`, richtet den Task ein und startet `-Testlauf`. Im aktuellen Quellstand liest dieser nur die lokale Dateiversion und schreibt keine Dateien. Die Online-Abfrage entfällt, damit WinGet auch seinen Cache nicht verändert. Der Installer selbst installiert weiterhin den Task und das Skript.
-
-### Verhalten und Einstellungen
-
-| Bereich | Verhalten des aktuellen Quellstands |
+| Bereich | Verhalten |
 |---|---|
-| Taskname | `Veyon AutoUpdate (winget)` |
-| Benutzerkonto | `SYSTEM` |
-| Trigger | Systemstart; bei erkanntem Windows-Schnellstart Benutzeranmeldung |
-| Verzögerung | Etwa zwei Minuten |
-| Bekannte Versionen | Numerischer Vergleich; Upgrade nur bei neuerer Online-Version |
-| WinGet-Aufruf | `upgrade --id VeyonSolutions.Veyon -e --silent --disable-interactivity` mit Zustimmungsflags für Paket und Quelle |
-| Veyon Master | Wenn vorher nicht vorhanden, wird `--custom /NoMaster` ergänzt |
-| Konfigurationssicherungen | Unter `config-backups`; bis zu drei JSON-Dateien und drei Registry-Dateien, getrennt rotiert |
+| Veyon | Nur `VeyonSolutions.Veyon` aus der Quelle `winget`; die zuvor geprüfte Zielversion wird fest angegeben |
+| Versionsprüfung | Upgrade nur bei eindeutig ermittelter neuerer Version |
+| Sicherung | Vor dem Upgrade JSON-Export über die Veyon-CLI, ersatzweise Registry-Export |
+| Veyon Master | War Master nicht vorhanden, wird `/NoMaster` übergeben |
+| Fehlende Sicherung | Kein Veyon-Upgrade |
+| Selbstupdate | Höchstens einmal innerhalb von 24 Stunden bei einem regulären Lauf; nur neuere stabile Releases |
+| Freigabeprüfung | RSA-3072/PSS mit SHA-256, fest hinterlegter öffentlicher Schlüssel und Dateiprüfsummen |
+| Aktivierung | Vollständig geprüfte neue Versionsdateien, lokaler Prüflauf, anschließend Wechsel des geschützten Zustands |
+| Rückfall | Bekannte vorherige Version bei lokalem Integritäts- oder Prüflauffehler; der höchste akzeptierte Versionsstand bleibt erhalten |
 
-**Sicherer Abbruch:** Bei unbekannten oder uneindeutigen Versionen sowie fehlgeschlagener Konfigurationssicherung gibt es kein Upgrade. Die geprüfte Zielversion wird beim Upgrade fest angegeben. ZIP und Setup enthalten dieselben geprüften Skripte.
+Die Selbstaktualisierung umfasst die beiden Laufzeitskripte. Startprogramm, Sicherheitskern und Vertrauensschlüssel werden über eine manuelle Installation gepflegt. Ein abweichender vorhandener Sicherheitskern wird bei einer erneuten Installation nicht still überschrieben.
 
-Das Skript legt keine eigenen Veyon-Einstellungen fest. Die gesicherten JSON- beziehungsweise Registry-Dateien stehen für eine manuelle Wiederherstellung zur Verfügung.
-
-#### Updater aktualisieren
-
-Warte einen laufenden Task ab. Sichere das bisherige Skript und `config-backups`, installiere dann das neue Paket über den bestehenden Updater. Nicht vorher deinstallieren: Das Entfernungsskript löscht auch dessen Sicherungsordner. Prüfe danach die Aufgabe und `-Testlauf`. Die Veyon-Konfiguration wird dabei nicht automatisch wiederhergestellt; JSON- und Registry-Sicherungen sind für einen gesonderten, kontrollierten Restore gedacht.
-
-### Windows-Schnellstart
-
-Der Installer prüft `HiberbootEnabled`. Bei aktiviertem Schnellstart wählt er **Benutzeranmeldung**, sonst **Systemstart**. So wird der automatische Lauf auch für die im Installer berücksichtigte Hybrid-Startkonfiguration eingerichtet. Den tatsächlich gewählten Trigger siehst du in der Aufgabenplanung.
+Ist GitHub nicht erreichbar oder ein Update ungültig, bleibt die installierte Version bestehen. Die reguläre Veyon-Prüfung kann weiterlaufen. Eine beschädigte lokale Installation wird nicht ausgeführt. Die eigene Veyon-Konfiguration wird nicht durch vorgegebene Einstellungen ersetzt; Sicherungen stehen für eine gesonderte manuelle Wiederherstellung bereit.
 
 ### Protokolle und Prüflauf
 
+Die folgenden Dateien liegen unter `C:\ProgramData\VeyonUpdater`:
+
 | Datei / Ordner | Inhalt |
 |---|---|
-| `C:\ProgramData\Veyon\Update\veyon_autoupdate.log` | Ablauf, ermittelte Versionen und Exitcodes |
-| `C:\ProgramData\Veyon\Update\winget_last.log` | WinGet-Protokoll des Upgrade-Aufrufs |
-| `C:\ProgramData\Veyon\Update\config-backups\` | Konfigurationssicherungen |
+| `veyon_autoupdate.log` | Veyon-Updateablauf, Versionen und Exitcodes |
+| `winget_last.log` | WinGet-Protokoll des Upgrade-Aufrufs |
+| `selfupdate.log` | Prüfung und Aktivierung von Updater-Versionen |
+| `config-backups` | Bis zu drei laufende JSON- und drei Registry-Sicherungen; übernommene `legacy-*`-Sicherungen bleiben zusätzlich erhalten |
 
-Das Laufprotokoll verwendet deutsche Datumsangaben. Ab etwa 1 MB wird es gekürzt; bei vorhandenem Startmarker bleibt der letzte Lauf erhalten.
+Laufprotokolle und Sicherungen werden auch nach fehlgeschlagenen Läufen begrenzt. Das Veyon-Protokoll wird oberhalb von 1 MiB, das WinGet-Protokoll oberhalb von 4 MiB auf einen Ausschnitt vom Ende gekürzt.
 
-Einen Prüflauf kannst du in einer PowerShell mit Administratorrechten starten:
+Prüflauf in einer PowerShell mit Administratorrechten:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\Veyon\Update\Veyon-AutoUpdate.ps1" -Testlauf
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\VeyonUpdater\Start-VeyonUpdater.ps1" -Testlauf
 ```
 
-Der Prüflauf liest nur die lokale Dateiversion. Er aktualisiert keine WinGet-Quellen, installiert nichts und verändert keine Veyon-Einstellungen. Für den normalen Updatebetrieb muss WinGet im SYSTEM-Kontext verfügbar sein. Wenn kein Update erfolgt, prüfe App Installer / WinGet und das Laufprotokoll.
+Der Prüflauf kontrolliert die installierten Dateien und liest die lokale Veyon-Dateiversion. Er lädt nichts herunter, startet kein Upgrade und verändert weder Konfiguration noch Protokolle oder Sicherungen.
 
-### Aktualisierung und Deinstallation
+### Wartung und Deinstallation
 
-Für ein Update des Updaters führe das neuere Setup oder die entpackte `Install-Veyon-AutoUpdate.cmd` erneut als Administrator aus. Der Installer ersetzt das Skript und erstellt die geplante Aufgabe neu.
+Bei geändertem Windows-Schnellstart kann eine erneute Installation mit demselben Sicherheitskern den passenden Trigger einrichten. Sichere benötigte Konfigurationsdateien vor Wartungsarbeiten. Manuelle Rückstufungen und Änderungen am Vertrauensschlüssel erfordern eine bewusste Neuinstallation; sie werden nicht über normale Selbstupdates verteilt.
 
-Zur Deinstallation führst du `Remove-Veyon-AutoUpdate.cmd` als Administrator aus. Sie entfernt den Task und den Ordner `C:\ProgramData\Veyon\Update\` einschließlich Logs und Konfigurationssicherungen. Kopiere benötigte Sicherungen vorher an einen anderen Ort. Die Veyon-Anwendung wird durch diese CMD-Datei nicht deinstalliert.
+Wurde eine Erstinstallation oder Neuinstallation durch Stromausfall oder Prozessabbruch unterbrochen, kann die Aufgabe deaktiviert bleiben. Starte dasselbe unveränderte vertrauenswürdige Installationspaket erneut. Ein abweichender oder fehlender Sicherheitskern bei vorhandenem Installationszustand wird nicht automatisch ersetzt.
 
-### Screenshots
+Für einen bewussten Wechsel des Sicherheitskerns oder Schlüssels:
 
-Die Bilder zeigen die deutsche Windows-Oberfläche.
+1. Stelle zuerst das vollständige neue Installationspaket aus einer vertrauenswürdigen Quelle bereit und sichere benötigte Konfigurationssicherungen separat.
+2. Entferne die bisherige Aufgabe und die Programmdateien mit `Remove-Veyon-AutoUpdate.cmd`, ohne `-DeleteBackups` zu verwenden.
+3. Installiere das neue Paket als Administrator und prüfe Aufgabe und Prüflauf.
 
-![Setup starten](Screens/VeyonUpdaterSchritt1.jpg)
+Während dieser Umstellung läuft kein automatischer Updater. Die geschützten Konfigurationssicherungen bleiben erhalten. Die neue Installation legt den vertrauenswürdigen Startpunkt erneut fest.
 
-[Schritt 2: Einrichtung](Screens/VeyonUpdaterSchritt2.jpg) · [Schritt 3: Abschluss](Screens/VeyonUpdaterSchritt3.jpg)
+**Unterbrochener externer Prozess:** Bleibt `native-operation.json` zurück, werden weitere normale Läufe und Installationen gesperrt. Starte den Rechner kontrolliert neu und prüfe danach die installierte Veyon-Version, die Protokolle und gegebenenfalls noch laufende Windows-Installer-Vorgänge. Erst wenn keine Installation mehr läuft und der Zustand geklärt ist, entferne diese Markierungsdatei bewusst als Administrator. Wiederhole anschließend Prüflauf und normalen Start. Die Datei wird nicht automatisch gelöscht; ein Prozessabbruch bestätigt keinen vollständigen Abbruch aller Installer-Dienstvorgänge.
 
-![Beispiel eines Laufprotokolls](Screens/VeyonUpdaterLogfile.jpg)
+`Remove-Veyon-AutoUpdate.cmd` entfernt als Administrator die Aufgabe und die Updater-Programmdateien. Konfigurationssicherungen bleiben standardmäßig erhalten. Die optionale PowerShell-Option `-DeleteBackups` entfernt sie ausdrücklich. Veyon selbst wird nicht deinstalliert.
 
-### Projektstruktur und Dokumentation
-
-| Datei | Aufgabe |
+| Problem | Prüfen |
 |---|---|
-| [Install-Veyon-AutoUpdate.cmd](Install-Veyon-AutoUpdate.cmd) | Dateien kopieren, Task anlegen und Prüflauf starten |
-| [Veyon-AutoUpdate.ps1](Veyon-AutoUpdate.ps1) | Versionsprüfung, Konfigurationssicherung und Upgrade |
-| [Remove-Veyon-AutoUpdate.cmd](Remove-Veyon-AutoUpdate.cmd) | Updater und Task entfernen |
-| [Screens/](Screens/) | Screenshots |
-| [TERMS.md](TERMS.md) | Lizenz- und Nutzungshinweise |
-
-### Versionsverlauf
-
-| Version | Datum | Änderung |
-|---|---|---|
-| V1.3 | 21.02.2026 | Erstellung der geplanten Aufgabe überarbeitet; Ausführung auch im Akkubetrieb |
-| V1.2 | 30.01.2026 | Setup als EXE-Datei ergänzt und Installation vereinfacht |
-| V1.1 | 24.01.2026 | Installation stabilisiert und Hinweise zum Entpacken ergänzt |
-| V1.0 | 12.11.2025 | Erste Veröffentlichung mit SYSTEM-Task, Startverzögerung und Logging |
-
-### Fehlersuche
-
-| Frage / Problem | Vorgehen |
-|---|---|
-| Zugriff verweigert oder Begleitdateien fehlen | ZIP vollständig entpacken und CMD als Administrator starten |
-| Nach dem Einschalten passiert nichts | Trigger in der Aufgabenplanung prüfen; bei Schnellstart wird Benutzeranmeldung verwendet |
-| Keine aktuelle Version ermittelt | Netzwerk, WinGet-Quelle und Laufprotokoll prüfen |
-| PC während eines Upgrades ausgeschaltet | Beim nächsten Trigger läuft die Prüfung erneut; danach installierte Version und Log kontrollieren |
-| WinGet fehlt | App Installer / WinGet auf dem Gerät prüfen und bei Bedarf aktualisieren |
-
-### Lizenz und Nutzung
-
-[MIT-Lizenz](LICENSE), ergänzt durch die [Nutzungshinweise](TERMS.md). Die Nutzung erfolgt auf eigene Verantwortung; halte aktuelle Sicherungen bereit. Roman Glos / Railsimulatornet.
+| Nach dem Einschalten kein Lauf | Aufgabenplanung; bei Schnellstart wird die Anmeldung als Trigger verwendet |
+| Kein Veyon-Update | WinGet im SYSTEM-Kontext, Versionsangaben, Netzwerk und Sicherungsfehler im Log |
+| Selbstupdate wird übersprungen | Stabiles Release, Signatur, Versionsstand, Zertifikatslaufzeit und `selfupdate.log` |
+| Integritäts- oder Berechtigungsfehler | Installation als Administrator prüfen; keine Schutzprüfung abschalten |
+| Unterbrochenes Veyon-Upgrade | Installierte Veyon-Version und WinGet-Protokoll kontrollieren; ein Timeout bestätigt keinen abgeschlossenen Rollback |
 
 ## English
 
-Automatic Veyon updates through **WinGet** on Windows devices. The installer creates a scheduled task running as **SYSTEM**. It starts about two minutes after system startup or, when Windows Fast Startup is enabled, after user logon.
+The updater maintains an existing Veyon installation through WinGet. Its SYSTEM task runs about two minutes after startup, or after user logon when Windows Fast Startup is enabled. Installation requires administrator privileges; later automatic runs do not require an administrator to sign in.
 
-This guide describes the published **V1.4** version. Setup requires administrator privileges; subsequent automatic runs do not require the user to sign in as an administrator.
+### Installation and requirements
 
-### Features
+Use Windows 10 or 11 with Windows PowerShell 5.1, .NET Framework 4.8, an existing Veyon installation and WinGet available to SYSTEM. Network access is required for GitHub release checks, WinGet sources and Veyon downloads.
 
-- Version checks for the WinGet package `VeyonSolutions.Veyon` and unattended upgrades.
-- When both version numbers can be determined, an upgrade runs only if the online version is newer than the installed version.
-- Before such a detected update, the Veyon configuration is backed up: first as JSON through the CLI, with a registry export as fallback.
-- If Veyon Master was not installed, the `/NoMaster` installer switch omits it during the upgrade.
-- Scheduled task with about two minutes of delay; V1.4 also permits the task to run on battery power.
-- German runtime logging, a WinGet log and automatic rotation of configuration backups.
+Download the setup executable or ZIP from the [official releases](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases). Verify its origin and the SHA-256 for that release before running it. Run the setup, or fully extract the ZIP and run `Install-Veyon-AutoUpdate.cmd` as administrator. The initial installation establishes trust; see the [signing policy](CODE_SIGNING_POLICY.md).
 
-### Requirements
+The protected installation directory is `C:\ProgramData\VeyonUpdater`. The task is named `Veyon AutoUpdate (winget)`. Migration from version 1.4 protects and copies existing configuration backups and switches the task. It retains the original backup files and does not change permissions across the parent Veyon directory.
 
-- Windows 10 or Windows 11 with Windows PowerShell and **App Installer / WinGet**.
-- An existing Veyon installation; Veyon Master is optional.
-- Administrator privileges to install or remove the updater.
-- Network access to the WinGet source and Veyon download.
+### Behaviour
 
-### Quick start: setup executable
+- Veyon upgrades use the exact package ID, the `winget` source and the checked target version. Ambiguous versions or a failed configuration backup prevent an upgrade.
+- A JSON configuration export is attempted first, with a registry export as fallback. `/NoMaster` is passed when Veyon Master was not installed.
+- Updater release checks occur at most once per 24 hours during normal runs. Only newer stable releases with a valid RSA-3072/PSS SHA-256 manifest and matching payload hashes are accepted.
+- Runtime scripts are staged and checked before an atomic state change activates them. A known previous version can recover from a local integrity or healthcheck failure; the highest accepted version is retained.
+- The launcher, security core and public trust key require manual installation. Reinstallation does not silently replace a different security core.
+- GitHub failures leave the current version in place and allow the normal Veyon check to continue. A damaged local installation is not executed.
 
-Before running the installer, verify the download source and checksum. See the [Code signing policy](CODE_SIGNING_POLICY.md) for signing information.
+Logs and configuration backups use the same filenames listed above. Up to three current JSON and three registry backups are retained; migrated `legacy-*` backups are kept separately in addition. Logs are bounded, including failed runs. Configuration backups are readable only by administrators and SYSTEM.
 
-1. Open the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) and download the setup executable. For V1.4, it is named **`VeyonUpdater_v1.4_Setup.exe`**.
-2. Run the file and accept the administrator prompt. Use **Run as administrator** if needed.
-3. Follow the setup. It extracts the files and installs the updater.
-4. Check the **`Veyon AutoUpdate (winget)`** task in Windows Task Scheduler and the log under `C:\ProgramData\Veyon\Update\`.
+Run the PowerShell command above from an elevated shell for a local integrity and version check. It performs no downloads or upgrades and makes no configuration, log or backup changes.
 
-The setup executable provides the straightforward installation route, for example on parent or student devices.
+### Maintenance and removal
 
-#### Alternative: ZIP package
+Test an installation on your target Windows system before wider deployment. Keep the configuration backups you need. Signature verification does not guarantee that a release is free of defects, and an unavailable update service cannot guarantee delivery of newer releases.
 
-1. Download the ZIP from the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest); for V1.4, use **`VeyonUpdater_v1.4.zip`**.
-2. Fully extract it with **Extract All**. Start the installer from the extracted folder.
-3. Run `Install-Veyon-AutoUpdate.cmd` as administrator. The CMD files and `Veyon-AutoUpdate.ps1` must be in the same folder.
+An interrupted manual installation may leave the task disabled. Rerun the same unchanged trusted package. A missing or different security core with existing installation state requires manual maintenance. To replace the security core or key, first obtain the complete trusted new package and save the backups you need. Remove the old task and program files without `-DeleteBackups`, then install the new package as administrator and check the task and test run. Automatic updating pauses during this change; protected configuration backups remain. The new installation establishes trust again.
 
-The installer copies the PowerShell script to `C:\ProgramData\Veyon\Update\`, creates the task and starts `-Testlauf`. In the current source, this only reads the local file version and writes no files. The online query is skipped so WinGet cannot update its cache. The installer itself still installs the task and script.
+If `native-operation.json` remains after an interrupted external process, further normal runs and installations are blocked. Restart the computer in a controlled manner, then inspect the installed Veyon version, logs and any continuing Windows Installer activity. Only after confirming that no installation is still running and resolving the state should an administrator remove the marker and repeat the test and normal run. The marker is never removed automatically, and process termination does not prove that every installer service operation was stopped.
 
-### Behaviour and settings
+Run `Remove-Veyon-AutoUpdate.cmd` as administrator to remove the task and updater files. Configuration backups are retained by default; the PowerShell `-DeleteBackups` option explicitly removes them. Veyon itself remains installed.
 
-| Area | Current source behaviour |
-|---|---|
-| Task name | `Veyon AutoUpdate (winget)` |
-| Account | `SYSTEM` |
-| Trigger | System startup; user logon when Windows Fast Startup is detected |
-| Delay | About two minutes |
-| Known versions | Numeric comparison; upgrade only when the online version is newer |
-| WinGet command | `upgrade --id VeyonSolutions.Veyon -e --silent --disable-interactivity` with package and source agreement flags |
-| Veyon Master | Adds `--custom /NoMaster` if Master was not previously installed |
-| Configuration backups | In `config-backups`; up to three JSON files and three registry files, rotated separately |
+## License
 
-**Safe abort:** Unknown or ambiguous versions and failed configuration backups prevent an upgrade. The upgrade explicitly pins the checked target version. The ZIP and setup contain the same verified scripts.
-
-The script does not define its own Veyon settings. The saved JSON or registry files are available for manual recovery.
-
-#### Windows Fast Startup
-
-The installer checks `HiberbootEnabled`. It selects **user logon** when Fast Startup is enabled and **system startup** otherwise. This configures the automatic run for the hybrid startup setting handled by the installer. Check Task Scheduler to see the trigger selected on your device.
-
-### Logs and test run
-
-| File / folder | Content |
-|---|---|
-| `C:\ProgramData\Veyon\Update\veyon_autoupdate.log` | Execution details, detected versions and exit codes |
-| `C:\ProgramData\Veyon\Update\winget_last.log` | WinGet log from the upgrade command |
-| `C:\ProgramData\Veyon\Update\config-backups\` | Configuration backups |
-
-The runtime log uses German date formatting. It is trimmed above approximately 1 MB; when a start marker exists, the most recent run is kept.
-
-To start a test run from an elevated PowerShell:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\Veyon\Update\Veyon-AutoUpdate.ps1" -Testlauf
-```
-
-The test run only reads the locally installed file version. It does not update WinGet sources, install software or change Veyon settings. For normal updates, WinGet must be available in the SYSTEM context. If no update occurs, check App Installer / WinGet and the run log.
-
-### Updates and removal
-
-To update the updater, run the newer setup executable or the extracted `Install-Veyon-AutoUpdate.cmd` again as administrator. The installer replaces the script and recreates the scheduled task.
-
-To uninstall, run `Remove-Veyon-AutoUpdate.cmd` as administrator. It removes the task and the `C:\ProgramData\Veyon\Update\` folder, including logs and configuration backups. Copy any backups you need to another location first. This CMD file does not uninstall the Veyon application.
-
-### Screenshots
-
-These images show the German Windows interface.
-
-![Starting the setup](Screens/VeyonUpdaterSchritt1.jpg)
-
-[Step 2: setup](Screens/VeyonUpdaterSchritt2.jpg) · [Step 3: completion](Screens/VeyonUpdaterSchritt3.jpg)
-
-![Example runtime log](Screens/VeyonUpdaterLogfile.jpg)
-
-### Project structure and documentation
-
-| File | Purpose |
-|---|---|
-| [Install-Veyon-AutoUpdate.cmd](Install-Veyon-AutoUpdate.cmd) | Copy files, create the task and run the version check |
-| [Veyon-AutoUpdate.ps1](Veyon-AutoUpdate.ps1) | Version checks, configuration backup and upgrade |
-| [Remove-Veyon-AutoUpdate.cmd](Remove-Veyon-AutoUpdate.cmd) | Remove the updater and task |
-| [Screens/](Screens/) | Screenshots |
-| [TERMS.md](TERMS.md) | License and usage notes |
-
-### Version history
-
-| Version | Date | Change |
-|---|---|---|
-| V1.3 | 2026-02-21 | Revised scheduled task creation; operation on battery power |
-| V1.2 | 2026-01-30 | Added an EXE setup and simplified installation |
-| V1.1 | 2026-01-24 | Improved installation stability and extraction instructions |
-| V1.0 | 2025-11-12 | First release with SYSTEM task, startup delay and logging |
-
-### Troubleshooting
-
-| Question / problem | Action |
-|---|---|
-| Access denied or companion files missing | Fully extract the ZIP and run the CMD as administrator |
-| Nothing happens after powering on | Check the Task Scheduler trigger; Fast Startup uses user logon |
-| Current version cannot be determined | Check networking, the WinGet source and runtime log |
-| PC switched off during an upgrade | The next trigger runs the check again; then check the installed version and log |
-| WinGet missing | Check App Installer / WinGet on the device and update it if necessary |
-
-### License and usage
-
-[MIT License](LICENSE), with additional [usage notes](TERMS.md). Use at your own risk and maintain current backups. Roman Glos / Railsimulatornet.
-
-### Updating the updater
-
-Wait for any running task. Back up the old script and `config-backups`, then install the new package over the existing updater. Do not uninstall first: the removal script also deletes its backup directory. Check the task and `-Testlauf` afterwards. Configuration recovery from JSON or registry exports is a separate, controlled restore.
+[MIT License](LICENSE). Copyright © 2026 Roman Glos / Railsimulatornet.

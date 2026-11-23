@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 dist/
+*.pfx
+*.p12
+*.key

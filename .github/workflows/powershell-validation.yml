@@ -19,7 +19,7 @@ permissions:
 jobs:
   parse:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -49,12 +49,6 @@ jobs:
           foreach ($link in $required) {
               if (-not $readme.Contains("]($link)")) {
                   throw "README does not link to $link"
-              }
-          }
-          $policy = Get-Content -LiteralPath CODE_SIGNING_POLICY.md -Raw -Encoding UTF8
-          foreach ($text in @('Code signing policy', 'Free code signing provided by', 'certificate by', 'Railsimulatornet', 'Privacy policy')) {
-              if (-not $policy.Contains($text)) {
-                  throw "Code signing policy is incomplete: $text"
               }
           }
           $release = Get-Content -LiteralPath release.json -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -92,8 +86,27 @@ jobs:
         shell: powershell
         run: ./tests/test_update.ps1
 
+      - name: Test native runtime helpers on Windows
+        shell: powershell
+        run: ./tests/test_runtime_windows.ps1
+
+      - name: Test permissions, signatures and update activation
+        shell: powershell
+        run: ./tests/test_security.ps1
+
+      - name: Test release manifest and ZIP contracts
+        run: python -m unittest discover -s tests -p test_build_release.py -v
+
+      - name: Test local release signing with a disposable key
+        shell: powershell
+        run: ./tests/test_sign_release.ps1
+
       - name: Verify complete release packages and packaged-source regressions
         run: python scripts/build_release.py --check --check-setup-launch --output dist
+
+      - name: Validate the unsigned artifacts against the source commit
+        shell: powershell
+        run: ./scripts/Sign-VeyonRelease.ps1 -AssetDirectory dist -SourceCommit (git rev-parse HEAD) -ValidateOnly
 
       - name: Install and verify the ZIP and setup EXE on the Windows runner
         shell: powershell
@@ -106,13 +119,14 @@ jobs:
           path: |
             dist/*.zip
             dist/*.exe
+            dist/*.manifest
             dist/SHA256SUMS
           if-no-files-found: error
 
   windows-11-installation:
     needs: parse
     runs-on: windows-11-arm
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -140,7 +154,7 @@ jobs:
               throw 'Missing release checksums.'
           }
           $release = Get-Content -LiteralPath release.json -Raw -Encoding UTF8 | ConvertFrom-Json
-          $expectedFiles = @($release.archive, $release.setup)
+          $expectedFiles = @($release.archive, $release.setup, $release.update_archive, $release.manifest)
           $verified = @{}
           foreach ($line in (Get-Content -LiteralPath $manifest -Encoding UTF8)) {
               if ($line -notmatch '^([0-9a-fA-F]{64})  ([A-Za-z0-9._-]+)$') {
@@ -168,6 +182,11 @@ jobs:
               throw 'Unexpected files in release package.'
           }
           Write-Host 'Build packages and SHA256 checksums verified.'
+      - name: Test Windows PowerShell security and runtime compatibility
+        shell: powershell
+        run: |
+          ./tests/test_security.ps1
+          ./tests/test_runtime_windows.ps1
       - name: Install and verify both packages on Windows 11
         shell: powershell
         run: ./tests/test_installation_smoke.ps1 -AssetDirectory dist

@@ -1,4 +1,5 @@
 ﻿$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
 $sourcePath = if ($env:VEYON_SOURCE) { $env:VEYON_SOURCE } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'Veyon-AutoUpdate.ps1' }
 $tokens = $null
 $errors = $null
@@ -22,9 +23,12 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
     $masterPresent = $false
     $script:Calls = [System.Collections.Generic.List[string]]::new()
     $script:VersionQueries = 0
+    $script:Maintenance = 0
     function Write-Log { param($Text) }
-    function Trim-LogIfOversize { }
+    function Trim-LogIfOversize { $script:Maintenance++ }
+    function Rotate-Backups { $script:Maintenance++ }
     function Resolve-WingetPath { return 'simulated-winget' }
+    function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 0; Output = '1.0' } }
     function Get-VeyonInstalledVersion {
         param([switch]$FilesOnly)
         $script:VersionQueries++
@@ -47,6 +51,7 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
         Assert-True ($upgrades[0] -match '--version 4.10.0 --source winget') "${Name}: upgrade must pin the checked version"
         Assert-True (($upgrades[0] -match '/NoMaster') -eq (-not $masterPresent)) "${Name}: must preserve existing installation components"
     }
+    Assert-True ($script:Maintenance -eq $(if ($Testlauf) { 0 } else { 2 })) "${Name}: cleanup must run after every non-dry outcome"
     if ($Testlauf) { Assert-True ($script:Calls.Count -eq 0) 'Dry run invoked a modifying command' }
     if (-not $installedVersion) { Assert-True ($script:Calls.Count -eq 0) 'Unknown installation changed sources or configuration' }
     Write-Host "PASS: $Name"
@@ -78,15 +83,16 @@ Test-Scenario 'missing post-upgrade version' {
 
 & {
     . ([scriptblock]::Create($definitions))
+    $PkgId = 'VeyonSolutions.Veyon'
     foreach ($text in @('unknown', 'error 5.2', '4.9.0 beta', "4.9.0`n4.10.0")) {
         Assert-True ($null -eq (Parse-InstalledSemVer $text)) 'Ambiguous version was accepted'
     }
     Assert-True ((Parse-InstalledSemVer 'Veyon 4.9.0') -eq [version]'4.9.0') 'Valid version rejected'
-    function winget-double { $global:LASTEXITCODE = 1; 'Version: 4.10.0' }
+    function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 1; Output = 'Version: 4.10.0' } }
     Assert-True ($null -eq (Get-OnlineVersionStrict -WingetExe winget-double)) 'Failed query accepted'
-    function winget-double { $global:LASTEXITCODE = 0; 'Version: 4.10.0'; 'Version: 4.11.0' }
+    function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 0; Output = "Version: 4.10.0`nVersion: 4.11.0" } }
     Assert-True ($null -eq (Get-OnlineVersionStrict -WingetExe winget-double)) 'Conflicting versions accepted'
-    function winget-double { $global:LASTEXITCODE = 0; 'Version: 4.10.0' }
+    function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 0; Output = 'Version: 4.10.0' } }
     Assert-True ((Get-OnlineVersionStrict -WingetExe winget-double) -eq [version]'4.10.0') 'Valid online version rejected'
     function Write-Log { param($Text) }
     $script:SourceCalls = [System.Collections.Generic.List[string]]::new()
@@ -105,6 +111,7 @@ Test-Scenario 'missing post-upgrade version' {
     function Write-Log { param($Text) }
     function Rotate-Backups { }
     function Get-VeyonCliPath { return $null }
+    function Get-VeyonSystemExecutable { param($Name); return $Name }
     try {
         function Invoke-Proc {
             param($File, $ArgList)
@@ -139,6 +146,13 @@ Test-Scenario 'missing post-upgrade version' {
         Assert-True (-not (Backup-VeyonConfig)) 'Null configuration export accepted'
         function Invoke-Proc { param($File, $ArgList); return 1 }
         Assert-True (-not (Backup-VeyonConfig)) 'Failed configuration export accepted'
+        function Invoke-Proc {
+            param($File, $ArgList)
+            $fileStream = [IO.File]::Create($ArgList[2])
+            try { $fileStream.SetLength(16MB + 1) } finally { $fileStream.Dispose() }
+            return 0
+        }
+        Assert-True (-not (Backup-VeyonConfig)) 'Oversized configuration export accepted'
         Write-Host 'PASS: configuration export validation'
     } finally {
         [System.IO.Directory]::Delete($BkDir, $true)
@@ -153,4 +167,35 @@ Test-Scenario 'missing post-upgrade version' {
     function Start-Process { throw 'Unexpected process launch' }
     & $sourcePath -Testlauf
     Write-Host 'PASS: full dry-run entry point'
+}
+
+& {
+    . ([scriptblock]::Create($definitions))
+    $Testlauf = $false
+    $BkDir = Join-Path ([IO.Path]::GetTempPath()) ('veyon-retention-test-' + [guid]::NewGuid())
+    [IO.Directory]::CreateDirectory($BkDir) | Out-Null
+    $Log = Join-Path $BkDir 'veyon_autoupdate.log'
+    $WingLog = Join-Path $BkDir 'winget_last.log'
+    function Write-Log { param($Text) }
+    try {
+        foreach ($pattern in @('config-{0}.json', 'registry-backup-{0}.reg')) {
+            foreach ($i in 1..5) {
+                $path = Join-Path $BkDir ($pattern -f $i)
+                [IO.File]::WriteAllText($path, '{}')
+                [IO.File]::SetLastWriteTimeUtc($path, [DateTime]::UtcNow.AddMinutes($i))
+            }
+        }
+        Rotate-Backups
+        Assert-True (@(Get-ChildItem -LiteralPath $BkDir -Filter 'config-*.json').Count -eq 3) 'JSON backups not bounded'
+        Assert-True (@(Get-ChildItem -LiteralPath $BkDir -Filter 'registry-backup-*.reg').Count -eq 3) 'Registry backups not bounded'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $BkDir 'config-1.json'))) 'Oldest backup retained'
+        [IO.File]::WriteAllText($Log, ('x' * (2MB)) + "`nLAST RUN`n")
+        [IO.File]::WriteAllText($WingLog, ('y' * (5MB)) + "`nLAST WINGET`n")
+        Trim-LogIfOversize
+        Assert-True ((Get-Item -LiteralPath $Log).Length -lt 1MB) 'Runtime log remained oversized'
+        Assert-True ((Get-Item -LiteralPath $WingLog).Length -lt 4MB) 'WinGet log remained oversized'
+        Assert-True ((Get-Content -LiteralPath $Log -Raw) -match 'LAST RUN') 'Runtime log lost newest entry'
+        Assert-True ((Get-Content -LiteralPath $WingLog -Raw) -match 'LAST WINGET') 'WinGet log lost newest entry'
+        Write-Host 'PASS: bounded logs and backup retention'
+    } finally { [IO.Directory]::Delete($BkDir, $true) }
 }

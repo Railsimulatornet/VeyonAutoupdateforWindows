@@ -1,26 +1,29 @@
 ﻿param([Parameter(Mandatory = $true)][string]$AssetDirectory)
-
 $ErrorActionPreference = 'Stop'
 $taskName = 'Veyon AutoUpdate (winget)'
-$taskPath = '\'
-$destination = 'C:\ProgramData\Veyon\Update'
+$root = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'VeyonUpdater'
+$legacyParent = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Veyon'
+$legacy = Join-Path $legacyParent 'Update'
 $powerKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power'
-$currentFastStartup = Get-ItemProperty -LiteralPath $powerKey
-$installDir = Split-Path -Parent $destination
-$installDirExisted = Test-Path -LiteralPath $installDir
+$power = Get-ItemProperty -LiteralPath $powerKey
 $oldNoPause = $env:VEYON_SETUP_NO_PAUSE
+$windows = [Environment]::GetFolderPath('Windows')
+$nativePowerShell = Join-Path $windows 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$systemTaskName = 'Veyon Updater installation check ' + [guid]::NewGuid().ToString('N')
+$probeRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) ('VeyonAccessTest-' + [guid]::NewGuid().ToString('N'))
+$testUser = 'VeyonTest' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+$userCreated = $false
+$temporary = Join-Path ([IO.Path]::GetTempPath()) ("veyon setup ' package " + [guid]::NewGuid().ToString('N'))
 
-if (Get-ScheduledTask -TaskPath $taskPath -ErrorAction SilentlyContinue |
-    Where-Object TaskName -eq $taskName) {
-    throw 'The installer smoke test requires a clean VM with no existing Veyon task.'
-}
-if (Test-Path -LiteralPath $destination) {
-    throw 'The installer smoke test requires a clean VM with no existing Veyon Update directory.'
+if ((Get-ScheduledTask -TaskPath '\' | Where-Object TaskName -eq $taskName) -or
+    [IO.Directory]::Exists($root) -or [IO.Directory]::Exists($legacyParent)) {
+    throw 'The installation smoke test requires a disposable clean Windows runner without existing Veyon data or task.'
 }
 
-function Assert-Installation([string]$TriggerType, [string]$Source) {
-    $task = Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath
-    $xml = [xml](Export-ScheduledTask -TaskName $taskName -TaskPath $taskPath)
+function Assert-Installation {
+    param([string]$TriggerType, [string]$PackageRoot)
+    $task = Get-ScheduledTask -TaskName $taskName -TaskPath '\'
+    $xml = [xml](Export-ScheduledTask -TaskName $taskName -TaskPath '\')
     $trigger = $xml.Task.Triggers.$TriggerType
     if (-not $trigger -or [Xml.XmlConvert]::ToTimeSpan($trigger.Delay).TotalSeconds -ne 120) {
         throw "Expected $TriggerType with a two-minute delay."
@@ -28,71 +31,202 @@ function Assert-Installation([string]$TriggerType, [string]$Source) {
     if ($xml.Task.Principals.Principal.UserId -ne 'S-1-5-18' -or $task.Principal.RunLevel -ne 'Highest') {
         throw 'Expected SYSTEM with highest privileges.'
     }
-    if (-not $task.Settings.Enabled -or $task.Settings.DisallowStartIfOnBatteries -or $task.Settings.StopIfGoingOnBatteries) {
-        throw 'Expected an enabled task that starts and keeps running on battery.'
+    if (-not $task.Settings.Enabled -or $task.Settings.DisallowStartIfOnBatteries -or $task.Settings.StopIfGoingOnBatteries -or
+        $task.Settings.MultipleInstances -ne 'IgnoreNew' -or [Xml.XmlConvert]::ToTimeSpan($task.Settings.ExecutionTimeLimit).TotalHours -gt 1) {
+        throw 'Unexpected task concurrency, timeout or battery settings.'
     }
-    $installed = Join-Path $destination 'Veyon-AutoUpdate.ps1'
-    if ($task.Actions.Count -ne 1 -or $task.Actions.Execute -ne 'powershell.exe' -or
-        $task.Actions.Arguments -ne ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $installed)) {
+    $expectedArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + (Join-Path $root 'Start-VeyonUpdater.ps1') + '"'
+    if (@($task.Actions).Count -ne 1 -or $task.Actions.Execute -ine (Get-VeyonPowerShell) -or
+        $task.Actions.Arguments -cne $expectedArguments -or $task.Actions.WorkingDirectory -ine $root) {
         throw 'Unexpected updater task action.'
     }
-    if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath $Source).Hash) {
-        throw 'The installed updater differs from the release payload.'
+    Assert-VeyonProtectedRoot -Root $root
+    $state = Read-VeyonState -Root $root
+    Assert-VeyonVersionFiles -Root $root -Record $state.current | Out-Null
+    $installed = Join-Path (Join-Path (Join-Path $root 'versions') $state.current.directory) 'Veyon-AutoUpdate.ps1'
+    if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath (Join-Path $PackageRoot 'Veyon-AutoUpdate.ps1')).Hash) {
+        throw 'Installed updater differs from the package.'
     }
-    if (@(Get-ChildItem -LiteralPath $destination -Force).Count -ne 1) {
-        throw 'The installation dry run unexpectedly created logs or backups.'
+    $service = New-Object -ComObject Schedule.Service
+    $service.Connect()
+    $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($service.GetFolder('\').GetTask($taskName).GetSecurityDescriptor(4))
+    foreach ($ace in $descriptor.DiscretionaryAcl) {
+        if ($ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.SecurityIdentifier.Value -notin @('S-1-5-18', 'S-1-5-32-544')) {
+            throw 'Unexpected task permission.'
+        }
     }
-    Write-Host "PASS: $TriggerType, two-minute delay, SYSTEM, battery settings, updater hash and clean dry run"
+    Write-Host "PASS: $TriggerType, two-minute delay, SYSTEM, bounded runtime, protected files and task"
 }
 
-$config = Get-Content (Join-Path $PSScriptRoot '../release.json') -Raw | ConvertFrom-Json
-$assetRoot = (Get-Item -LiteralPath $AssetDirectory).FullName
-$zip = Join-Path $assetRoot $config.archive
-$setup = Join-Path $assetRoot $config.setup
-$temporary = Join-Path ([IO.Path]::GetTempPath()) ('veyon setup ' + [guid]::NewGuid())
+function Invoke-SystemDryRun {
+    $checkScript = Join-Path $root 'installation-system-check.ps1'
+    $proof = Join-Path $root 'installation-system-proof.txt'
+    $contents = @'
+$ErrorActionPreference = 'Stop'
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+if ($identity -ne 'S-1-5-18') { throw 'The process is not running as SYSTEM.' }
+$root = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'VeyonUpdater'
+$powershell = Join-Path ([Environment]::GetFolderPath('Windows')) 'System32\WindowsPowerShell\v1.0\powershell.exe'
+& $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'Start-VeyonUpdater.ps1') -Testlauf
+if ($LASTEXITCODE -ne 0) { throw 'The installed launcher dry run failed.' }
+[IO.File]::WriteAllText((Join-Path $root 'installation-system-proof.txt'), $identity)
+'@
+    [IO.File]::WriteAllText($checkScript, $contents)
+    Set-VeyonProtectedAcl -Path $checkScript
+    $stateHash = (Get-FileHash -LiteralPath (Join-Path $root 'state.json')).Hash
+    $action = New-ScheduledTaskAction -Execute (Get-VeyonPowerShell) -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f $checkScript)
+    $principal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::FromMinutes(2))
+    Register-ScheduledTask -TaskName $systemTaskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+    try {
+        Start-ScheduledTask -TaskName $systemTaskName
+        $limit = [DateTime]::UtcNow.AddSeconds(90)
+        while ([DateTime]::UtcNow -lt $limit) {
+            if ([IO.File]::Exists($proof) -and (Get-ScheduledTask -TaskName $systemTaskName).State -ne 'Running') { break }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not [IO.File]::Exists($proof) -or [IO.File]::ReadAllText($proof) -cne 'S-1-5-18') {
+            throw 'SYSTEM launch did not produce its verified identity result.'
+        }
+        if ((Get-FileHash -LiteralPath (Join-Path $root 'state.json')).Hash -ne $stateHash -or
+            [IO.File]::Exists((Join-Path $root 'selfupdate-check.txt')) -or [IO.File]::Exists((Join-Path $root 'veyon_autoupdate.log'))) {
+            throw 'The SYSTEM dry run changed runtime state.'
+        }
+        Write-Host 'PASS: installed launcher and health check really executed as SYSTEM without update/network state'
+    } finally {
+        Unregister-ScheduledTask -TaskName $systemTaskName -Confirm:$false -ErrorAction SilentlyContinue
+        foreach ($path in @($checkScript, $proof)) { if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) } }
+    }
+}
+
+function Test-StandardUserAccess {
+    param([string]$BackupPath, [string]$LegacyBackupPath)
+    [IO.Directory]::CreateDirectory($probeRoot) | Out-Null
+    $acl = New-VeyonDirectorySecurity
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'),
+        [Security.AccessControl.FileSystemRights]::ReadAndExecute,
+        ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit),
+        [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow))
+    Set-Acl -LiteralPath $probeRoot -AclObject $acl
+    $probe = Join-Path $probeRoot 'probe.ps1'
+    $probeText = @'
+param([string]$Root, [string]$ScriptPath, [string]$BackupPath, [string]$LegacyBackupPath)
+$ErrorActionPreference = 'Stop'
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+if ([Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'The access probe unexpectedly has administrator privileges.'
+}
+function Assert-Denied([scriptblock]$Action) {
+    $denied = $false
+    try { & $Action } catch {
+        $exception = $_.Exception
+        while ($exception.InnerException) { $exception = $exception.InnerException }
+        if ($exception.HResult -eq -2147024891) { $denied = $true } else { throw }
+    }
+    if (-not $denied) { throw 'A standard user crossed the updater permission boundary.' }
+}
+Assert-Denied { $stream = [IO.File]::Open($ScriptPath, 'Open', 'ReadWrite', 'ReadWrite'); $stream.Dispose() }
+Assert-Denied { [IO.File]::WriteAllText((Join-Path $Root 'standard-user-file.txt'), 'unexpected') }
+Assert-Denied { $stream = [IO.File]::Open((Join-Path $Root 'state.json'), 'Open', 'ReadWrite', 'ReadWrite'); $stream.Dispose() }
+Assert-Denied { [IO.File]::ReadAllText($BackupPath) | Out-Null }
+Assert-Denied { [IO.File]::ReadAllText($LegacyBackupPath) | Out-Null }
+Assert-Denied {
+    $service = New-Object -ComObject Schedule.Service
+    $service.Connect()
+    $service.GetFolder('\').DeleteTask('Veyon AutoUpdate (winget)', 0)
+}
+Write-Output 'STANDARD_USER_DENIED'
+'@
+    [IO.File]::WriteAllText($probe, $probeText)
+    $password = 'Vt!8' + [guid]::NewGuid().ToString('N')
+    $secure = ConvertTo-SecureString $password -AsPlainText -Force
+    $user = New-LocalUser -Name $testUser -Password $secure -AccountNeverExpires -PasswordNeverExpires
+    $script:userCreated = $true
+    if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID.Value -eq $user.SID.Value })) {
+        Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user.SID
+    }
+    $credential = [Management.Automation.PSCredential]::new(($env:COMPUTERNAME + '\' + $testUser), $secure)
+    $state = Read-VeyonState -Root $root
+    $scriptPath = Join-Path (Join-Path (Join-Path $root 'versions') $state.current.directory) 'Veyon-AutoUpdate.ps1'
+    $stdout = Join-Path $probeRoot 'stdout.txt'
+    $stderr = Join-Path $probeRoot 'stderr.txt'
+    $process = Start-Process -FilePath (Get-VeyonPowerShell) -Credential $credential -WorkingDirectory $probeRoot -PassThru `
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr -ArgumentList (
+        '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Root "{1}" -ScriptPath "{2}" -BackupPath "{3}" -LegacyBackupPath "{4}"' -f $probe, $root, $scriptPath, $BackupPath, $LegacyBackupPath)
+    try {
+        if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Standard user access test timed out.' }
+        if ($process.ExitCode -ne 0 -or [IO.File]::ReadAllText($stdout) -notmatch 'STANDARD_USER_DENIED') {
+            throw ('Standard user access test failed: ' + [IO.File]::ReadAllText($stderr))
+        }
+    } finally { $process.Dispose() }
+    Write-Host 'PASS: a real standard-user process cannot change scripts/state, create files, read backups or delete the task'
+}
+
+$config = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../release.json') -Raw | ConvertFrom-Json
+$assets = (Get-Item -LiteralPath $AssetDirectory).FullName
 try {
     $env:VEYON_SETUP_NO_PAUSE = '1'
-    Expand-Archive -LiteralPath $zip -DestinationPath $temporary
-    $updater = Join-Path $temporary 'Veyon-AutoUpdate.ps1'
+    Expand-Archive -LiteralPath (Join-Path $assets $config.archive) -DestinationPath $temporary
+    . (Join-Path $temporary 'VeyonUpdater.Security.ps1')
+    $legacyBackups = Join-Path $legacy 'config-backups'
+    [IO.Directory]::CreateDirectory($legacyBackups) | Out-Null
+    $legacyBackup = Join-Path $legacyBackups 'config-installation-test.json'
+    [IO.File]::WriteAllText($legacyBackup, '{"installationTest":true}')
+    $legacyScript = Join-Path $legacy 'Veyon-AutoUpdate.ps1'
+    [IO.File]::WriteAllText($legacyScript, 'exit 0')
+    $parentAcl = (Get-Acl -LiteralPath $legacyParent).Sddl
+    $updateAcl = (Get-Acl -LiteralPath $legacy).Sddl
+    $legacyAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $legacyScript)
+    $legacyPrincipal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
+    Register-ScheduledTask -TaskName $taskName -Action $legacyAction -Principal $legacyPrincipal -Trigger (New-ScheduledTaskTrigger -AtStartup) -Force | Out-Null
     Set-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -Type DWord -Value 0
     Push-Location -LiteralPath $temporary
     try {
-        & $env:ComSpec /d /c Install-Veyon-AutoUpdate.cmd
+        & (Join-Path $windows 'System32\cmd.exe') /d /c Install-Veyon-AutoUpdate.cmd
         if ($LASTEXITCODE -ne 0) { throw "ZIP installation failed with exit code $LASTEXITCODE." }
-    } finally {
-        Pop-Location
+    } finally { Pop-Location }
+    Assert-Installation -TriggerType BootTrigger -PackageRoot $temporary
+    $copiedBackup = Join-Path (Join-Path $root 'config-backups') 'legacy-config-installation-test.json'
+    if ((Get-FileHash -LiteralPath $copiedBackup).Hash -ne (Get-FileHash -LiteralPath $legacyBackup).Hash -or
+        (Get-Acl -LiteralPath $legacyParent).Sddl -cne $parentAcl -or (Get-Acl -LiteralPath $legacy).Sddl -cne $updateAcl) {
+        throw 'Legacy migration changed data or parent permissions.'
     }
-    Assert-Installation -TriggerType BootTrigger -Source $updater
-    Write-Host 'PASS: release ZIP installer'
+    Assert-VeyonAcl -Path $legacyBackups -Private
+    Assert-VeyonAcl -Path $legacyBackup -Private
+    Write-Host 'PASS: legacy task migration, retained backups and unchanged Veyon parent permissions'
+    Invoke-SystemDryRun
 
-    # Keep the existing task to exercise repair in place. Removing the updater
-    # verifies that the actual setup EXE ran and copied its payload again.
-    Remove-Item -LiteralPath (Join-Path $destination 'Veyon-AutoUpdate.ps1')
     Set-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -Type DWord -Value 1
-    $process = Start-Process -FilePath $setup -ArgumentList '-y' -PassThru
+    $process = Start-Process -FilePath (Join-Path $assets $config.setup) -ArgumentList '-y' -PassThru
     try {
-        if (-not $process.WaitForExit(60000)) {
-            & taskkill.exe /PID $process.Id /T /F | Out-Host
-            throw 'Setup EXE timed out.'
-        }
+        if (-not $process.WaitForExit(90000)) { $process.Kill(); throw 'Setup EXE timed out.' }
         if ($process.ExitCode -ne 0) { throw "Setup EXE failed with exit code $($process.ExitCode)." }
-    } finally {
-        $process.Dispose()
+    } finally { $process.Dispose() }
+    Assert-Installation -TriggerType LogonTrigger -PackageRoot $temporary
+    Disable-ScheduledTask -TaskName $taskName -TaskPath '\' | Out-Null
+    Test-StandardUserAccess -BackupPath $copiedBackup -LegacyBackupPath $legacyBackup
+    & $nativePowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $temporary 'Remove-Veyon-AutoUpdate.ps1')
+    if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($copiedBackup) -or
+        (Get-ScheduledTask -TaskPath '\' | Where-Object TaskName -eq $taskName) -or
+        [IO.Directory]::Exists((Join-Path $root 'versions'))) {
+        throw 'Uninstallation did not retain backups or remove the task and program.'
     }
-    Assert-Installation -TriggerType LogonTrigger -Source $updater
-    Write-Host 'PASS: release setup EXE replaced the existing task'
+    Assert-VeyonProtectedRoot -Root $root
+    Write-Host 'PASS: uninstall removes task/program and preserves protected backups'
+    & $nativePowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $temporary 'Remove-Veyon-AutoUpdate.ps1') -DeleteBackups
+    if ($LASTEXITCODE -ne 0 -or [IO.Directory]::Exists($root)) { throw 'Explicit backup removal did not complete.' }
+    Write-Host 'PASS: explicit full removal'
 } finally {
     $env:VEYON_SETUP_NO_PAUSE = $oldNoPause
-    if ($currentFastStartup.PSObject.Properties['HiberbootEnabled']) {
-        Set-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -Type DWord -Value $currentFastStartup.HiberbootEnabled
-    } else {
-        Remove-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -ErrorAction SilentlyContinue
+    if ($power.PSObject.Properties['HiberbootEnabled']) {
+        Set-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -Type DWord -Value $power.HiberbootEnabled
+    } else { Remove-ItemProperty -LiteralPath $powerKey -Name HiberbootEnabled -ErrorAction SilentlyContinue }
+    foreach ($name in @($taskName, $systemTaskName)) {
+        Unregister-ScheduledTask -TaskName $name -TaskPath '\' -Confirm:$false -ErrorAction SilentlyContinue
     }
-    Unregister-ScheduledTask -TaskName $taskName -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
-    foreach ($path in @($destination, $temporary)) {
+    if ($userCreated) { Remove-LocalUser -Name $testUser -ErrorAction SilentlyContinue }
+    foreach ($path in @($root, $legacyParent, $temporary, $probeRoot)) {
         if ([IO.Directory]::Exists($path)) { [IO.Directory]::Delete($path, $true) }
-    }
-    if (-not $installDirExisted -and [IO.Directory]::Exists($installDir)) {
-        [IO.Directory]::Delete($installDir)
     }
 }
