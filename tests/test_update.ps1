@@ -13,19 +13,22 @@ function Assert-True($Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade, [bool]$ExpectFailure = $false) {
+function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade, [bool]$ExpectFailure = $false, [string]$ExpectedLog = '') {
     . ([scriptblock]::Create($definitions))
     $Testlauf = $false
     $PkgId = 'VeyonSolutions.Veyon'
     $WingLog = 'synthetic.log'
     $installedVersion = [version]'4.9.0'
     $onlineVersion = [version]'4.10.0'
+    $postUpgradeVersion = $null
     $masterPresent = $false
     $script:Calls = [System.Collections.Generic.List[string]]::new()
+    $script:Logs = [System.Collections.Generic.List[string]]::new()
+    $script:UpgradeSucceeded = $false
     $script:VersionQueries = 0
     $script:Maintenance = 0
     $script:TrackedUpgrade = $false
-    function Write-Log { param($Text) }
+    function Write-Log { param($Text); $script:Logs.Add($Text) }
     function Trim-LogIfOversize { $script:Maintenance++ }
     function Rotate-Backups { $script:Maintenance++ }
     function Resolve-WingetPath { return 'simulated-winget' }
@@ -33,15 +36,16 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
     function Get-VeyonInstalledVersion {
         param([switch]$FilesOnly)
         $script:VersionQueries++
-        if ($script:VersionQueries -eq 1) { return $installedVersion }
-        return $onlineVersion
+        if ($script:VersionQueries -eq 1 -or -not $script:UpgradeSucceeded) { return $installedVersion }
+        return $postUpgradeVersion
     }
     function Get-OnlineVersionStrict { param($WingetExe); return $onlineVersion }
     function Ensure-WingetSources { param($WingetExe); $script:Calls.Add('sources') }
     function Test-MasterPresent { return $masterPresent }
     function Backup-VeyonConfig { $script:Calls.Add('backup'); return $true }
-    function Invoke-Proc { param($File, $ArgList, [switch]$TrackMutation); $script:Calls.Add(($ArgList -join ' ')); $script:TrackedUpgrade = [bool]$TrackMutation; return 0 }
+    function Invoke-Proc { param($File, $ArgList, [switch]$TrackMutation); $script:Calls.Add(($ArgList -join ' ')); $script:TrackedUpgrade = [bool]$TrackMutation; $script:UpgradeSucceeded = $true; return 0 }
     . $Setup
+    if ($null -eq $postUpgradeVersion) { $postUpgradeVersion = $onlineVersion }
     $failed = $false
     try { Invoke-VeyonUpdate } catch { $failed = $true }
     Assert-True ($failed -eq $ExpectFailure) "${Name}: unexpected failure result"
@@ -50,8 +54,13 @@ function Test-Scenario([string]$Name, [scriptblock]$Setup, [bool]$ExpectUpgrade,
     if ($ExpectUpgrade) {
         Assert-True $script:TrackedUpgrade "${Name}: upgrade requires durable mutation tracking"
         Assert-True ($script:Calls.IndexOf('backup') -lt $script:Calls.IndexOf($upgrades[0])) "${Name}: backup must precede upgrade"
-        Assert-True ($upgrades[0] -match '--version 4.10.0 --source winget') "${Name}: upgrade must pin the checked version"
+        $expectedTarget = '--version ' + [regex]::Escape([string]$onlineVersion) + ' --source winget'
+        Assert-True ($upgrades[0] -match $expectedTarget) "${Name}: upgrade must preserve the checked WinGet version"
         Assert-True (($upgrades[0] -match '/NoMaster') -eq (-not $masterPresent)) "${Name}: must preserve existing installation components"
+    }
+    if ($ExpectedLog) { Assert-True ($script:Logs.Contains($ExpectedLog)) "${Name}: expected result was not logged" }
+    if (-not $ExpectUpgrade -and -not $ExpectFailure) {
+        Assert-True (-not $script:Calls.Contains('backup')) "${Name}: no-op must not create a backup"
     }
     Assert-True ($script:Maintenance -eq $(if ($Testlauf) { 0 } else { 2 })) "${Name}: cleanup must run after every non-dry outcome"
     if ($Testlauf) { Assert-True ($script:Calls.Count -eq 0) 'Dry run invoked a modifying command' }
@@ -64,6 +73,56 @@ Test-Scenario 'existing master' { $masterPresent = $true } $true
 Test-Scenario 'missing winget' { function Resolve-WingetPath { return $null } } $false
 Test-Scenario 'equal version' { $onlineVersion = [version]'4.9.0' } $false
 Test-Scenario 'older online version' { $onlineVersion = [version]'4.8.0' } $false
+Test-Scenario 'WinGet four-part target confirmed by three-part installed version' {
+    $installedVersion = [version]'4.7.5'
+    $onlineVersion = [version]'4.11.5.0'
+    $postUpgradeVersion = [version]'4.11.5'
+} $true $false 'Ergebnis: UPDATE ERFOLGREICH.'
+Test-Scenario 'three-part installation already matches four-part target' {
+    $installedVersion = [version]'4.11.5'
+    $onlineVersion = [version]'4.11.5.0'
+} $false $false 'Ergebnis: Keine Änderung.'
+Test-Scenario 'four-part installation already matches three-part target' {
+    $installedVersion = [version]'4.11.5.0'
+    $onlineVersion = [version]'4.11.5'
+} $false $false 'Ergebnis: Keine Änderung.'
+Test-Scenario 'format-only version change is unchanged' {
+    $installedVersion = [version]'4.11.5.0'
+    $onlineVersion = [version]'4.11.5'
+    function Get-VeyonInstalledVersion {
+        param([switch]$FilesOnly)
+        $script:VersionQueries++
+        if ($script:VersionQueries -eq 1) { return $installedVersion }
+        return [version]'4.11.5'
+    }
+} $false $false 'Ergebnis: Keine Änderung.'
+Test-Scenario 'missing build and revision match zero components' {
+    $installedVersion = [version]'4.11'
+    $onlineVersion = [version]'4.11.0.0'
+} $false $false 'Ergebnis: Keine Änderung.'
+Test-Scenario 'nonzero revision requires upgrade' {
+    $installedVersion = [version]'4.11.5'
+    $onlineVersion = [version]'4.11.5.1'
+} $true $false 'Ergebnis: UPDATE ERFOLGREICH.'
+Test-Scenario 'newer installed revision prevents downgrade' {
+    $installedVersion = [version]'4.11.5.1'
+    $onlineVersion = [version]'4.11.5'
+} $false $false 'Ergebnis: Keine Änderung.'
+Test-Scenario 'missing required revision fails confirmation' {
+    $installedVersion = [version]'4.7.5'
+    $onlineVersion = [version]'4.11.5.1'
+    $postUpgradeVersion = [version]'4.11.5'
+} $true $true 'Update fehlgeschlagen: Die erwartete Version wurde nach dem Upgrade nicht bestaetigt.'
+Test-Scenario 'older build fails confirmation despite larger revision' {
+    $installedVersion = [version]'4.7.5'
+    $onlineVersion = [version]'4.11.5.0'
+    $postUpgradeVersion = [version]'4.11.4.9'
+} $true $true 'Update fehlgeschlagen: Die erwartete Version wurde nach dem Upgrade nicht bestaetigt.'
+Test-Scenario 'newer installed revision confirms checked target' {
+    $installedVersion = [version]'4.7.5'
+    $onlineVersion = [version]'4.11.5.0'
+    $postUpgradeVersion = [version]'4.11.5.1'
+} $true $false 'Ergebnis: UPDATE ERFOLGREICH.'
 Test-Scenario 'unknown installed version' { $installedVersion = $null } $false
 Test-Scenario 'unknown online version' { $onlineVersion = $null } $false
 Test-Scenario 'both versions unknown' { $installedVersion = $null; $onlineVersion = $null } $false
@@ -86,16 +145,19 @@ Test-Scenario 'missing post-upgrade version' {
 & {
     . ([scriptblock]::Create($definitions))
     $PkgId = 'VeyonSolutions.Veyon'
-    foreach ($text in @('unknown', 'error 5.2', '4.9.0 beta', "4.9.0`n4.10.0")) {
+    foreach ($text in @('unknown', 'error 5.2', '4.9.0 beta', '4.11.5.0.0', '4.11.5-rc1', "4.9.0`n4.10.0")) {
         Assert-True ($null -eq (Parse-InstalledSemVer $text)) 'Ambiguous version was accepted'
     }
     Assert-True ((Parse-InstalledSemVer 'Veyon 4.9.0') -eq [version]'4.9.0') 'Valid version rejected'
+    Assert-True ((Parse-InstalledSemVer 'Veyon 4.11.5.0').ToString() -ceq '4.11.5.0') 'Installed version representation was changed'
     function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 1; Output = 'Version: 4.10.0' } }
     Assert-True ($null -eq (Get-OnlineVersionStrict -WingetExe winget-double)) 'Failed query accepted'
     function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 0; Output = "Version: 4.10.0`nVersion: 4.11.0" } }
     Assert-True ($null -eq (Get-OnlineVersionStrict -WingetExe winget-double)) 'Conflicting versions accepted'
     function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 0; Output = 'Version: 4.10.0' } }
     Assert-True ((Get-OnlineVersionStrict -WingetExe winget-double) -eq [version]'4.10.0') 'Valid online version rejected'
+    function Invoke-VeyonQuery { param($File, $ArgList); return [pscustomobject]@{ ExitCode = 0; Output = 'Version: 4.11.5.0' } }
+    Assert-True ((Get-OnlineVersionStrict -WingetExe winget-double).ToString() -ceq '4.11.5.0') 'WinGet target representation was changed'
     function Write-Log { param($Text) }
     $script:SourceCalls = [System.Collections.Generic.List[string]]::new()
     function Invoke-Proc { param($File, $ArgList); $script:SourceCalls.Add(($ArgList -join ' ')); return 1 }

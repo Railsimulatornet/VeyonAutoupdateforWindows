@@ -325,6 +325,17 @@ function Backup-VeyonConfig {
 }
 
 # ---- Versionsermittlung ----
+function Compare-VeyonVersion {
+    param(
+        [Parameter(Mandatory=$true)][ValidateNotNull()][version]$Left,
+        [Parameter(Mandatory=$true)][ValidateNotNull()][version]$Right
+    )
+    # CLI und WinGet koennen dieselbe Version mit unterschiedlich vielen Teilen melden.
+    $leftValue = [version]::new($Left.Major, $Left.Minor, [Math]::Max(0, $Left.Build), [Math]::Max(0, $Left.Revision))
+    $rightValue = [version]::new($Right.Major, $Right.Minor, [Math]::Max(0, $Right.Build), [Math]::Max(0, $Right.Revision))
+    return $leftValue.CompareTo($rightValue)
+}
+
 function Parse-InstalledSemVer {
     param([string]$Text)
     if (-not $Text) { return $null }
@@ -436,13 +447,10 @@ $onlineVer = Get-OnlineVersionStrict -WingetExe $wingetPath
 $doBackup = $false
 $doUpgrade = $false
 
-if ($onlineVer -and $beforeVer -and ($onlineVer -gt $beforeVer)) {
-    $doBackup = $true
-    $doUpgrade = $true
-} elseif ($onlineVer -and $beforeVer -and ($onlineVer -le $beforeVer)) {
-    $doBackup = $false
-    $doUpgrade = $false
-} elseif (-not $onlineVer -or -not $beforeVer) {
+if ($onlineVer -and $beforeVer) {
+    $doUpgrade = (Compare-VeyonVersion -Left $onlineVer -Right $beforeVer) -gt 0
+    $doBackup = $doUpgrade
+} else {
     Write-Log 'Version nicht eindeutig ermittelbar. Kein Upgrade.'
 }
 
@@ -473,13 +481,14 @@ if ($doUpgrade) {
 
 $afterVer = Get-VeyonInstalledVersion
 if ($afterVer) { Write-Log ("Version nach Update: " + $afterVer) } else { Write-Log "Version nach Update: unbekannt" }
-if ($doUpgrade -and (-not $afterVer -or $afterVer -lt $onlineVer)) {
+if ($doUpgrade -and (-not $afterVer -or (Compare-VeyonVersion -Left $afterVer -Right $onlineVer) -lt 0)) {
     throw 'Die erwartete Version wurde nach dem Upgrade nicht bestaetigt.'
 }
 
 if ($beforeVer -and $afterVer) {
-    if ($afterVer -gt $beforeVer) { Write-Log "Ergebnis: UPDATE ERFOLGREICH." }
-    elseif ($afterVer -eq $beforeVer) { Write-Log "Ergebnis: Keine Änderung." }
+    $versionChange = Compare-VeyonVersion -Left $afterVer -Right $beforeVer
+    if ($versionChange -gt 0) { Write-Log "Ergebnis: UPDATE ERFOLGREICH." }
+    elseif ($versionChange -eq 0) { Write-Log "Ergebnis: Keine Änderung." }
     else { Write-Log "Ergebnis: WARNUNG – Version nachher kleiner als vorher." }
 } elseif ($afterVer -and -not $beforeVer) {
     Write-Log "Ergebnis: Installation/Version ermittelt (vormals unbekannt)."

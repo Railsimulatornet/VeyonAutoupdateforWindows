@@ -94,6 +94,10 @@ jobs:
         shell: powershell
         run: ./tests/test_security.ps1
 
+      - name: Test signed updater packages through the SYSTEM task
+        shell: powershell
+        run: ./tests/test_selfupdate_windows.ps1
+
       - name: Test release manifest and ZIP contracts
         run: python -m unittest discover -s tests -p test_build_release.py -v
 
@@ -185,8 +189,12 @@ jobs:
       - name: Test Windows PowerShell security and runtime compatibility
         shell: powershell
         run: |
+          ./tests/test_update.ps1
           ./tests/test_security.ps1
           ./tests/test_runtime_windows.ps1
+      - name: Test signed updater packages through the SYSTEM task
+        shell: powershell
+        run: ./tests/test_selfupdate_windows.ps1
       - name: Install and verify both packages on Windows 11
         shell: powershell
         run: ./tests/test_installation_smoke.ps1 -AssetDirectory dist
