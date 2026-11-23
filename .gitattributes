@@ -4,6 +4,7 @@
 *.md text eol=lf
 *.pdf binary
 *.sfx binary
+*.cer binary
 *.ps1 -text
 *.cmd -text
 README.md -text
