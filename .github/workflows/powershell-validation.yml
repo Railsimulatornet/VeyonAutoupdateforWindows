@@ -143,9 +143,7 @@ jobs:
           $expectedFiles = @($release.archive, $release.setup)
           $verified = @{}
           foreach ($line in (Get-Content -LiteralPath $manifest -Encoding UTF8)) {
-              if ($line -notmatch '^([0-9a-fA-F]{64})  ([A-Za-z0-9._-]+)        shell: powershell
-        run: ./tests/test_installation_smoke.ps1 -AssetDirectory dist
-) {
+              if ($line -notmatch '^([0-9a-fA-F]{64})  ([A-Za-z0-9._-]+)$') {
                   throw 'Invalid checksum record.'
               }
               $name = $Matches[2]
