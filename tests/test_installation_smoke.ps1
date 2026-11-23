@@ -51,11 +51,22 @@ function Assert-Installation {
     }
     $service = New-Object -ComObject Schedule.Service
     $service.Connect()
-    $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($service.GetFolder('\').GetTask($taskName).GetSecurityDescriptor(4))
+    $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($service.GetFolder('\').GetTask($taskName).GetSecurityDescriptor(7))
+    if ($null -eq $descriptor.Owner -or $descriptor.Owner.Value -ne 'S-1-5-32-544' -or
+        $null -eq $descriptor.Group -or $descriptor.Group.Value -ne 'S-1-5-32-544' -or
+        -not ($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or
+        $null -eq $descriptor.DiscretionaryAcl -or $descriptor.DiscretionaryAcl.Count -ne 2) {
+        throw 'Unexpected task owner or missing/extra task permissions.'
+    }
+    $seen = @{}
     foreach ($ace in $descriptor.DiscretionaryAcl) {
-        if ($ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.SecurityIdentifier.Value -notin @('S-1-5-18', 'S-1-5-32-544')) {
+        if ($ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or
+            $ace.AceFlags -ne [Security.AccessControl.AceFlags]::None -or
+            $ace.SecurityIdentifier.Value -notin @('S-1-5-18', 'S-1-5-32-544') -or
+            $ace.AccessMask -notin @(0x001F01FF, 0x10000000) -or $seen.ContainsKey($ace.SecurityIdentifier.Value)) {
             throw 'Unexpected task permission.'
         }
+        $seen[$ace.SecurityIdentifier.Value] = $true
     }
     Write-Host "PASS: $TriggerType, two-minute delay, SYSTEM, bounded runtime, protected files and task"
 }
@@ -169,6 +180,16 @@ Assert-Denied { [IO.File]::ReadAllText($LegacyBackupPath) | Out-Null }
 Assert-Denied {
     $service = New-Object -ComObject Schedule.Service
     $service.Connect()
+    $service.GetFolder('\').GetTask('Veyon AutoUpdate (winget)').Run($null) | Out-Null
+}
+Assert-Denied {
+    $service = New-Object -ComObject Schedule.Service
+    $service.Connect()
+    $service.GetFolder('\').GetTask('Veyon AutoUpdate (winget)').SetSecurityDescriptor('D:P(A;;FA;;;SY)(A;;FA;;;BA)', 0x10)
+}
+Assert-Denied {
+    $service = New-Object -ComObject Schedule.Service
+    $service.Connect()
     $service.GetFolder('\').DeleteTask('Veyon AutoUpdate (winget)', 0)
 }
 Write-Output 'STANDARD_USER_DENIED'
@@ -195,7 +216,7 @@ Write-Output 'STANDARD_USER_DENIED'
             throw ('Standard user access test failed: ' + [IO.File]::ReadAllText($stderr))
         }
     } finally { $process.Dispose() }
-    Write-Host 'PASS: a real standard-user process cannot change scripts/state, create files, read backups or delete the task'
+    Write-Host 'PASS: a real standard-user process cannot change scripts/state, create files, read backups or run/change permissions/delete the task'
 }
 
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../release.json') -Raw | ConvertFrom-Json
