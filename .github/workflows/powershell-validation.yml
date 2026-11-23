@@ -26,17 +26,17 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify signing and privacy policy references
+      - name: Check public project documentation
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'RELEASE_CHECKLIST.md')) {
+          foreach ($file in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')) {
               if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
-                  throw "Required project document missing: $file"
+                  throw "Required public document missing: $file"
               }
           }
           $readme = Get-Content -LiteralPath README.md -Raw -Encoding UTF8
-          foreach ($link in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'RELEASE_CHECKLIST.md')) {
+          foreach ($link in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')) {
               if (-not $readme.Contains("]($link)")) {
                   throw "README does not link to $link"
               }
@@ -47,7 +47,22 @@ jobs:
                   throw "Code signing policy is incomplete: $text"
               }
           }
-          Write-Host 'Signing policy and privacy references: OK'
+          foreach ($oldFile in @('RELEASE_CHECKLIST.md', 'CHANGELOG.md', 'BUILDING.md', '.github/PULL_REQUEST_TEMPLATE.md')) {
+              if (Test-Path -LiteralPath $oldFile) {
+                  throw "Unexpected internal file: $oldFile"
+              }
+          }
+          $release = Get-Content -LiteralPath release.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ('CHANGELOG.md' -in $release.files) {
+              throw 'Release package includes an unwanted file.'
+          }
+          foreach ($publicDoc in @('README.md', 'CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')) {
+              $body = Get-Content -LiteralPath $publicDoc -Raw -Encoding UTF8
+              if ($body -match 'RELEASE_CHECKLIST\.md|CHANGELOG\.md|BUILDING\.md|SignPath-Foundation-Bewerbung|noch nicht freigegeben') {
+                  throw "Internal reference found in $publicDoc"
+              }
+          }
+          Write-Host 'Public project documentation: OK'
 
       - name: Parse scripts with Windows PowerShell
         shell: powershell
