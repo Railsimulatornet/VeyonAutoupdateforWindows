@@ -211,9 +211,20 @@ Write-Output 'STANDARD_USER_DENIED'
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr -ArgumentList (
         '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Root "{1}" -ScriptPath "{2}" -BackupPath "{3}" -LegacyBackupPath "{4}"' -f $probe, $root, $scriptPath, $BackupPath, $LegacyBackupPath)
     try {
+        # Keep the native handle before waiting; redirected credential processes
+        # otherwise can lose their ExitCode in Windows PowerShell 5.1.
+        $cachedProcessHandle = $process.Handle
         if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Standard user access test timed out.' }
-        if ($process.ExitCode -ne 0 -or [IO.File]::ReadAllText($stdout) -notmatch 'STANDARD_USER_DENIED') {
-            throw ('Standard user access test failed: ' + [IO.File]::ReadAllText($stderr))
+        # The process has exited; finish draining its redirected output handlers.
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
+        $stdoutText = if ([IO.File]::Exists($stdout)) { [IO.File]::ReadAllText($stdout) } else { '<not created>' }
+        $stderrText = if ([IO.File]::Exists($stderr)) { [IO.File]::ReadAllText($stderr) } else { '<not created>' }
+        if ($null -eq $exitCode -or $exitCode -ne 0 -or $stdoutText -notmatch '(?m)^STANDARD_USER_DENIED\r?$') {
+            $exitText = if ($null -eq $exitCode) { '<null>' } else { '{0} (0x{1:X8})' -f $exitCode, $exitCode }
+            $stdoutDetail = $stdoutText.Substring(0, [Math]::Min(4096, $stdoutText.Length))
+            $stderrDetail = $stderrText.Substring(0, [Math]::Min(4096, $stderrText.Length))
+            throw ('Standard user access test failed; exit={0}; stdout=[{1}]; stderr=[{2}]' -f $exitText, $stdoutDetail, $stderrDetail)
         }
     } finally { $process.Dispose() }
     Write-Host 'PASS: a real standard-user process cannot change scripts/state, create files, read backups or run/change permissions/delete the task'
