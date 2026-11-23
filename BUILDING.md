@@ -26,3 +26,13 @@ Windows and 7-Zip are required for the setup build. The unchanged SFX module com
 Die Windows-CI prüft auch den Start des SFX-Moduls und installiert danach beide Pakete auf dem Testrechner. Sie kontrolliert Start und Anmeldung mit zwei Minuten Verzögerung, das SYSTEM-Konto, die Akku-Einstellungen und die Prüfsumme des installierten Skripts. Die geprüften ZIP- und EXE-Dateien stehen nach erfolgreichem Lauf als CI-Artefakt bereit.
 
 Windows CI also checks the SFX bootstrap and then installs both packages on the test runner. It verifies startup and logon with a two-minute delay, the SYSTEM account, battery settings and the installed script hash. The tested ZIP and EXE are available as a CI artifact after a successful run.
+
+## Freigabe und Code signing policy
+
+Die verbindlichen Schritte stehen in der [Release-Checkliste](RELEASE_CHECKLIST.md). Die [Code signing policy](CODE_SIGNING_POLICY.md) und die [Datenschutzangaben](PRIVACY.md) gelten auch für künftige Downloads.
+
+Die SignPath-Foundation-Bewerbung ist noch offen. Es gibt derzeit **keine SignPath-signierte Release-Datei** und keinen aktiven Signierworkflow. Sobald eine Freigabe vorliegt, wird die CI-Anbindung mit Herkunftsprüfung und manueller Signierfreigabe gesondert eingerichtet und getestet.
+
+Das bisherige SFX-Setup enthält ein unverändertes 7-Zip-Programm. Vor der Signierung muss die Eignung dieser Paketform gemäß den Anforderungen der Foundation geklärt sein. Der Paketbau darf nicht bloß deshalb als „SignPath-geprüft“ bezeichnet werden, weil ZIP und EXE erfolgreich erstellt wurden.
+
+Ab der nächsten Veröffentlichung muss die Release-Seite ausdrücklich die Code signing policy verlinken und den tatsächlichen Signaturstatus nennen. Die vorhandene Version 1.4 wird dadurch nicht nachträglich als signiert dargestellt.

@@ -26,6 +26,29 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify signing and privacy policy references
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($file in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'RELEASE_CHECKLIST.md')) {
+              if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                  throw "Required project document missing: $file"
+              }
+          }
+          $readme = Get-Content -LiteralPath README.md -Raw -Encoding UTF8
+          foreach ($link in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'RELEASE_CHECKLIST.md')) {
+              if (-not $readme.Contains("]($link)")) {
+                  throw "README does not link to $link"
+              }
+          }
+          $policy = Get-Content -LiteralPath CODE_SIGNING_POLICY.md -Raw -Encoding UTF8
+          foreach ($text in @('Code signing policy', 'Free code signing provided by', 'certificate by', 'Railsimulatornet', 'Privacy policy')) {
+              if (-not $policy.Contains($text)) {
+                  throw "Code signing policy is incomplete: $text"
+              }
+          }
+          Write-Host 'Signing policy and privacy references: OK'
+
       - name: Parse scripts with Windows PowerShell
         shell: powershell
         run: |
