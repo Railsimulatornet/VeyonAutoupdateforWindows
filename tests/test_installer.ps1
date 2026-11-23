@@ -5,6 +5,8 @@ $temporary = Join-Path ([IO.Path]::GetTempPath()) ('veyon-installer-check-' + [g
 $oldPath = $env:PATH
 $oldAudit = $env:INSTALLER_AUDIT
 $oldMode = $env:INSTALLER_MODE
+$oldNoPause = $env:VEYON_SETUP_NO_PAUSE
+$env:VEYON_SETUP_NO_PAUSE = '1'
 try {
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
     $code = @'
@@ -15,8 +17,11 @@ class Stub {
     static int Main(string[] args) {
         string name = Path.GetFileNameWithoutExtension(Process.GetCurrentProcess().MainModule.FileName).ToLowerInvariant();
         File.AppendAllText(Environment.GetEnvironmentVariable("INSTALLER_AUDIT"), name + " " + String.Join(" ", args) + Environment.NewLine);
-        if (name == "reg") Console.WriteLine("    HiberbootEnabled    REG_DWORD    0x1");
-        if (name == "schtasks" && Environment.GetEnvironmentVariable("INSTALLER_MODE") == "task-fail") return 1;
+        string mode = Environment.GetEnvironmentVariable("INSTALLER_MODE");
+        if (name == "powershell") {
+            if (mode == "task-fail" && Array.Exists(args, a => a.EndsWith("Register-Veyon-AutoUpdateTask.ps1"))) return 1;
+            if (mode == "dry-run-fail" && Array.Exists(args, a => a == "-Testlauf")) return 1;
+        }
         return 0;
     }
 }
@@ -26,10 +31,10 @@ class Stub {
     $stub = Join-Path $temporary 'Stub.exe'
     & $compiler /nologo /target:exe "/out:$stub" $source
     if ($LASTEXITCODE -ne 0) { throw 'Cannot compile isolated command doubles.' }
-    foreach ($mode in @('success', 'copy-fail', 'task-fail', 'missing-script')) {
+    foreach ($mode in @('success', 'copy-fail', 'task-fail', 'dry-run-fail', 'missing-script', 'missing-task-script')) {
         $caseRoot = Join-Path $temporary $mode
         [IO.Directory]::CreateDirectory($caseRoot) | Out-Null
-        foreach ($command in @('net','reg','schtasks','powershell')) {
+        foreach ($command in @('net','powershell')) {
             [IO.File]::Copy($stub, (Join-Path $caseRoot ($command + '.exe')))
         }
         $destination = Join-Path $caseRoot 'destination'
@@ -41,6 +46,10 @@ class Stub {
         $installer = Join-Path $caseRoot 'Install-Veyon-AutoUpdate.cmd'
         [IO.File]::WriteAllText($installer, $installerText, [Text.UTF8Encoding]::new($false))
         [IO.File]::Copy((Join-Path $PackageRoot 'Remove-Veyon-AutoUpdate.cmd'), (Join-Path $caseRoot 'Remove-Veyon-AutoUpdate.cmd'))
+        $taskScript = 'Register-Veyon-AutoUpdateTask.ps1'
+        if ($mode -ne 'missing-task-script') {
+            [IO.File]::Copy((Join-Path $PackageRoot $taskScript), (Join-Path $caseRoot $taskScript))
+        }
         if ($mode -ne 'missing-script') {
             [IO.File]::Copy((Join-Path $PackageRoot 'Veyon-AutoUpdate.ps1'), (Join-Path $caseRoot 'Veyon-AutoUpdate.ps1'))
         }
@@ -59,16 +68,28 @@ class Stub {
         $process = [Diagnostics.Process]::Start($start)
         $process.StandardInput.WriteLine('')
         $process.StandardInput.Close()
-        $stdout = $process.StandardOutput.ReadToEnd()
-        $stderr = $process.StandardError.ReadToEnd()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(15000)) { $process.Kill(); throw 'Installer simulation timed out.' }
-        $expected = if ($mode -eq 'success') { 0 } elseif ($mode -eq 'task-fail') { 3 } else { 2 }
-        if ($process.ExitCode -ne $expected) { throw "Unexpected result for ${mode}: $stdout $stderr" }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $expected = @{ success = 0; 'task-fail' = 3; 'dry-run-fail' = 4 }
+        $expectedCode = if ($expected.ContainsKey($mode)) { $expected[$mode] } else { 2 }
+        if ($process.ExitCode -ne $expectedCode) { throw "Unexpected result for ${mode}: $stdout $stderr" }
+        if (($stdout -match '(?m)^FERTIG\.') -ne ($mode -eq 'success')) {
+            throw "Incorrect success message for ${mode}: $stdout"
+        }
         $audit = [IO.File]::ReadAllText($env:INSTALLER_AUDIT)
-        if ($audit -match 'schtasks /Delete') { throw 'Installer deletes an existing task before replacement.' }
-        if ($mode -in @('copy-fail','missing-script') -and $audit -match 'schtasks /Create') { throw 'Task changed after failed copy.' }
+        $dryRunIndex = $audit.IndexOf('-Testlauf')
+        $registrationIndex = $audit.IndexOf($taskScript)
+        if ($mode -in @('success','task-fail')) {
+            if ($dryRunIndex -lt 0 -or $registrationIndex -le $dryRunIndex) {
+                throw "Expected a dry run before registration for $mode."
+            }
+        } elseif ($registrationIndex -ge 0 -or ($mode -ne 'dry-run-fail' -and $dryRunIndex -ge 0)) {
+            throw "Unexpected PowerShell invocation for $mode."
+        }
         if ($mode -eq 'success') {
-            if ($audit -notmatch '/SC ONLOGON' -or $audit -notmatch '-Testlauf') { throw 'Missing configured trigger or dry run.' }
             $copied = Join-Path $destination 'Veyon-AutoUpdate.ps1'
             if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copied)) -ne [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $PackageRoot 'Veyon-AutoUpdate.ps1')))) { throw 'Installed script differs from package.' }
         }
@@ -79,5 +100,6 @@ class Stub {
     $env:PATH = $oldPath
     $env:INSTALLER_AUDIT = $oldAudit
     $env:INSTALLER_MODE = $oldMode
+    $env:VEYON_SETUP_NO_PAUSE = $oldNoPause
     if ([IO.Directory]::Exists($temporary)) { [IO.Directory]::Delete($temporary, $true) }
 }

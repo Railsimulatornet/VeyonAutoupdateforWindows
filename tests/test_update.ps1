@@ -154,5 +154,3 @@ Test-Scenario 'missing post-upgrade version' {
     & $sourcePath -Testlauf
     Write-Host 'PASS: full dry-run entry point'
 }
-
-& (Join-Path $PSScriptRoot 'test_installer.ps1') -PackageRoot (Split-Path $sourcePath -Parent)
