@@ -1,35 +1,23 @@
 # Code signing policy
 
-## Status
-
-Für dieses Projekt wurde die kostenlose Codesignierung über SignPath Foundation beantragt. Die Freigabe steht noch aus. **Version 1.4 und die bisherigen Downloads sind nicht mit SignPath signiert.**
-
-Vorgesehener Hinweis für spätere, tatsächlich signierte Veröffentlichungen:
+Für digital signierte Veröffentlichungen dieses Projekts gilt:
 
 > Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+Eine Datei gilt nur dann als signiert, wenn Windows eine gültige digitale Signatur für genau diese Datei bestätigt. Die Richtlinie allein ist kein Signaturnachweis.
 
 ## Zuständigkeiten
 
 - **Entwicklung und Pflege:** [Railsimulatornet](https://github.com/Railsimulatornet)
-- **Prüfung von Beiträgen:** Railsimulatornet. Externe Pull Requests werden vor der Übernahme geprüft.
-- **Freigabe der Signierung und Veröffentlichung:** Railsimulatornet. Jede Signierung wird einzeln genehmigt.
+- **Codeprüfung:** Railsimulatornet prüft Änderungen vor der Übernahme.
+- **Signierfreigabe:** Railsimulatornet genehmigt jede Signierung einzeln.
 
-## Freigabe eines Releases
+## Veröffentlichung
 
-1. Änderungen erfolgen über einen Entwicklungsbranch und Pull Request.
-2. GitHub Actions prüft PowerShell-Syntax, Updateentscheidungen, Paketinhalt, reproduzierbaren Build und die automatisierten Windows-Installationstests.
-3. Die endgültigen ZIP- und EXE-Dateien müssen dem geprüften Commit zugeordnet sein. Nachträgliches Austauschen ungeprüfter Assets ist nicht zulässig.
-4. Zuerst wird ein Pre-Release getestet. Ein Stable-Release benötigt zusätzlich eine erfolgreiche praktische Windows-Abnahme und die ausdrückliche Freigabe des Maintainers.
-5. Nach Freischaltung von SignPath gilt zusätzlich: Herkunft des Builds prüfen, den Signiervorgang manuell genehmigen und Signatur, Zeitstempel, Dateimetadaten und Prüfsummen des fertigen Downloads kontrollieren.
+Die Quelltexte und der Build-Prozess liegen im [öffentlichen Repository](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows). Neue Downloads werden anhand der automatisierten Windows-Tests und eines praktischen Installationstests geprüft. Eine Veröffentlichung erfordert die Freigabe des Projektbetreuers.
 
-Für signierte eigene Binärdateien müssen Produktname und Produktversion über den gesamten Build hinweg einheitlich und über SignPath-Dateimetadatenregeln abgesichert sein. Private Signierschlüssel gehören nicht ins Repository oder auf einen GitHub-Runner.
+Die Herkunft und Unversehrtheit eines Downloads lassen sich über die zur Veröffentlichung gehörende Prüfsumme und, bei signierten Dateien, über die digitale Signatur kontrollieren.
 
-**Offener Punkt:** Das bisherige Setup verwendet ein vorgefertigtes 7-Zip-SFX-Modul. Es ist keine selbst entwickelte ausführbare Datei. Vor einer Signierung durch SignPath Foundation muss geklärt und nachgewiesen sein, dass die konkrete Paketform deren Vorgaben für Fremdbinärdateien erfüllt. Bis dahin bleibt die Signierung deaktiviert.
+## Privacy policy
 
-## Sicherheit und Datenschutz
-
-Der Updater darf nur geprüfte Veröffentlichungen verarbeiten. Unbekannte oder manipulierte Dateien dürfen nicht mit erhöhten Rechten ausgeführt werden. Die spätere Selbstupdate-Funktion erhält hierfür eine eigene Signaturprüfung und einen Wiederherstellungsweg; sie ist in Version 1.4 noch nicht enthalten.
-
-Datenschutz und tatsächliche Netzwerkverbindungen: [Privacy policy](PRIVACY.md).
-
-Voraussetzungen der Foundation: [SignPath Foundation Conditions](https://signpath.org/terms).
+Die [Datenschutzinformationen](PRIVACY.md) beschreiben die Netzwerkverbindungen und lokal gespeicherten Daten. Hinweise zur vertraulichen Meldung von Sicherheitsproblemen stehen unter [Sicherheit](SECURITY.md).

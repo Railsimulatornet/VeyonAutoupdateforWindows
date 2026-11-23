@@ -26,17 +26,27 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify signing and privacy policy references
+      - name: Check public project documentation
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'RELEASE_CHECKLIST.md')) {
+          $required = @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md')
+          $allowed = @('README.md', 'CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'TERMS.md')
+          foreach ($file in $required) {
               if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
-                  throw "Required project document missing: $file"
+                  throw "Required public document missing: $file"
               }
           }
+          foreach ($file in @(Get-ChildItem -Path . -File -Filter '*.md' | Select-Object -ExpandProperty Name)) {
+              if ($file -notin $allowed) {
+                  throw "Unexpected root documentation: $file"
+              }
+          }
+          if (@(Get-ChildItem -Path .github -File -Filter '*.md').Count -gt 0) {
+              throw 'Unexpected repository template document.'
+          }
           $readme = Get-Content -LiteralPath README.md -Raw -Encoding UTF8
-          foreach ($link in @('CODE_SIGNING_POLICY.md', 'PRIVACY.md', 'SECURITY.md', 'RELEASE_CHECKLIST.md')) {
+          foreach ($link in $required) {
               if (-not $readme.Contains("]($link)")) {
                   throw "README does not link to $link"
               }
@@ -47,7 +57,13 @@ jobs:
                   throw "Code signing policy is incomplete: $text"
               }
           }
-          Write-Host 'Signing policy and privacy references: OK'
+          $release = Get-Content -LiteralPath release.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          foreach ($file in $release.files) {
+              if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                  throw "Release references a missing file: $file"
+              }
+          }
+          Write-Host 'Public project documentation: OK'
 
       - name: Parse scripts with Windows PowerShell
         shell: powershell

@@ -9,11 +9,7 @@ Version: **1.4**
 
 ## Code signing policy
 
-[Code signing policy](CODE_SIGNING_POLICY.md) · [Privacy policy](PRIVACY.md) · [Sicherheitsmeldungen / Security](SECURITY.md) · [Release-Checkliste](RELEASE_CHECKLIST.md)
-
-Die kostenlose Signierung durch SignPath Foundation ist beantragt, aber **noch nicht freigegeben**. Die bisherigen Downloads, auch Version 1.4, sind nicht mit SignPath signiert. Für zukünftig tatsächlich signierte Dateien ist vorgesehen: Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-Hinweise zur Signatur stehen bei den jeweiligen Downloads. Eine digitale Signatur allein garantiert nicht, dass Microsoft SmartScreen bei einem neuen Download keine Warnung zeigt.
+[Code signing policy](CODE_SIGNING_POLICY.md) · [Datenschutz / Privacy](PRIVACY.md) · [Sicherheit / Security](SECURITY.md)
 
 ## Deutsch
 
@@ -39,7 +35,7 @@ Diese Anleitung beschreibt den veröffentlichten Stand **V1.4**. Für die Einric
 
 ### Schnellstart: Setup-Datei
 
-Vor dem Download bitte die [Code signing policy](CODE_SIGNING_POLICY.md) beachten. Version 1.4 ist derzeit nicht digital signiert. Browser- und SmartScreen-Warnungen dürfen nicht durch Abschalten der Schutzfunktionen umgangen werden.
+Prüfe vor dem Start die Herkunft und Prüfsumme der Datei. Die Angaben zur digitalen Signierung findest du in der [Code signing policy](CODE_SIGNING_POLICY.md).
 
 1. Öffne das [aktuelle Release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) und lade die Setup-Datei herunter. Für V1.4 heißt sie **`VeyonUpdater_v1.4_Setup.exe`**.
 2. Starte die Datei und bestätige die Administratorabfrage. Falls erforderlich, verwende **Als Administrator ausführen**.
@@ -172,7 +168,7 @@ This guide describes the published **V1.4** version. Setup requires administrato
 
 ### Quick start: setup executable
 
-Please read the [Code signing policy](CODE_SIGNING_POLICY.md) before downloading. Version 1.4 is currently unsigned. Do not disable browser or Windows security protections to suppress warnings.
+Before running the installer, verify the download source and checksum. See the [Code signing policy](CODE_SIGNING_POLICY.md) for signing information.
 
 1. Open the [latest release](https://github.com/Railsimulatornet/VeyonAutoupdateforWindows/releases/latest) and download the setup executable. For V1.4, it is named **`VeyonUpdater_v1.4_Setup.exe`**.
 2. Run the file and accept the administrator prompt. Use **Run as administrator** if needed.
@@ -280,7 +276,3 @@ These images show the German Windows interface.
 ### Updating the updater
 
 Wait for any running task. Back up the old script and `config-backups`, then install the new package over the existing updater. Do not uninstall first: the removal script also deletes its backup directory. Check the task and `-Testlauf` afterwards. Configuration recovery from JSON or registry exports is a separate, controlled restore.
-
-## Paketprüfung / Package verification
-
-[BUILDING.md](BUILDING.md) beschreibt den geprüften Paketbau. / See [BUILDING.md](BUILDING.md) for package build and verification.

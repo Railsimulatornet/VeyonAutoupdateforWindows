@@ -9,8 +9,7 @@
     "Veyon-AutoUpdate.ps1",
     "README.md",
     "LICENSE",
-    "packaging/LZMA-SDK.txt",
-    "CHANGELOG.md"
+    "packaging/LZMA-SDK.txt"
   ],
   "version_markers": {
     "Install-Veyon-AutoUpdate.cmd": "V{version}",
