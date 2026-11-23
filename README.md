@@ -10,6 +10,7 @@ Version: **1.4**
 ## Code signing policy
 
 [Code signing policy](CODE_SIGNING_POLICY.md) · [Datenschutz / Privacy](PRIVACY.md) · [Sicherheit / Security](SECURITY.md)
+
 ## Deutsch
 
 Automatische Veyon-Updates über **WinGet** auf Windows-Geräten. Der Installer richtet eine geplante Aufgabe als **SYSTEM** ein. Sie startet mit etwa zwei Minuten Verzögerung beim Systemstart oder, bei aktiviertem Windows-Schnellstart, bei der Benutzeranmeldung.
