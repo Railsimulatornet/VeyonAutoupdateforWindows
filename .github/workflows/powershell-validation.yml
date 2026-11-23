@@ -123,7 +123,51 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: tested-release-assets
-          path: dist
+          path: downloaded
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Verify extracted packages
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = 'downloaded/tested-release-assets.zip'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+              throw 'Build archive missing.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath dist -Force
+          $manifest = Join-Path dist 'SHA256SUMS'
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+              throw 'Missing release checksums.'
+          }
+          $release = Get-Content -LiteralPath release.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $expectedFiles = @($release.archive, $release.setup)
+          $verified = @{}
+          foreach ($line in (Get-Content -LiteralPath $manifest -Encoding UTF8)) {
+              if ($line -notmatch '^([0-9a-fA-F]{64})  ([A-Za-z0-9._-]+)$') {
+                  throw 'Invalid checksum record.'
+              }
+              $name = $Matches[2]
+              if ($verified.ContainsKey($name) -or $name -notin $expectedFiles) {
+                  throw 'Unexpected or duplicate release file.'
+              }
+              $file = Join-Path dist $name
+              if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                  throw 'Release file missing.'
+              }
+              $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+              if ($actual -ine $Matches[1]) {
+                  throw 'Release file checksum mismatch.'
+              }
+              $verified[$name] = $true
+          }
+          if ($verified.Count -ne $expectedFiles.Count) {
+              throw 'Incomplete release package.'
+          }
+          $actualFiles = @(Get-ChildItem -LiteralPath dist -File | Select-Object -ExpandProperty Name)
+          if ($actualFiles.Count -ne ($expectedFiles.Count + 1)) {
+              throw 'Unexpected files in release package.'
+          }
+          Write-Host 'Build packages and SHA256 checksums verified.'
       - name: Install and verify both packages on Windows 11
         shell: powershell
         run: ./tests/test_installation_smoke.ps1 -AssetDirectory dist
