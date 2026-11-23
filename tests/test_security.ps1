@@ -58,6 +58,29 @@ Assert-Rejected { Assert-VeyonState -State $state } 'Duplicate state file accept
 $record.files[1].path='Veyon-SelfUpdate.ps1'
 Write-Host 'PASS: state schema and rollback bounds'
 
+# Exercise the actual writer on every host; Windows ACL checks follow below.
+& {
+    function Assert-VeyonSafePath { param($Path) }
+    function Assert-VeyonAcl { param($Path,[switch]$Private) }
+    function Set-VeyonProtectedAcl { param($Path) }
+    $stateRoot = Join-Path ([IO.Path]::GetTempPath()) ('veyon-state-test-'+[guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($stateRoot) | Out-Null
+    try {
+        Write-VeyonState -Root $stateRoot -State $state
+        $state.highestVersion='1.5.2'; $state.failedVersion='1.5.2'
+        Write-VeyonState -Root $stateRoot -State $state
+        $stored = Read-VeyonState -Root $stateRoot
+        Assert-True ($stored.highestVersion -eq '1.5.2' -and $stored.current.version -eq '1.5.1') 'State replacement lost current or rollback bound'
+        $state.schema=2
+        Assert-Rejected { Write-VeyonState -Root $stateRoot -State $state } 'Invalid state was written'
+        Assert-True ((Read-VeyonState -Root $stateRoot).schema -eq 1) 'Rejected state replaced active state'
+    } finally {
+        $state.schema=1; $state.highestVersion='1.5.1'; $state.failedVersion=$null
+        [IO.Directory]::Delete($stateRoot,$true)
+    }
+}
+Write-Host 'PASS: real state-file replacement and rejected-state preservation'
+
 if ($Portable) { Write-Host 'Windows ACL, native PSS and activation tests require Windows PowerShell 5.1.'; exit 0 }
 if ($PSVersionTable.PSEdition -ne 'Desktop') { throw 'Run the complete security suite in Windows PowerShell 5.1.' }
 

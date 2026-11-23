@@ -300,7 +300,7 @@ function Write-VeyonState {
             [IO.FileShare]::None, 4096, [IO.FileOptions]::WriteThrough)
         try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
         Set-VeyonProtectedAcl -Path $temporary
-        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary,$path,$null) }
+        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary,$path,[NullString]::Value) }
         else { [IO.File]::Move($temporary,$path) }
     } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
 }
